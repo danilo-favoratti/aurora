@@ -1,4 +1,4 @@
-# 🎮 Pixel RPG Storyteller
+# 🎮 Aurora's Pixel RPG Storyteller
 
 A real-time RPG storytelling application using AI to generate narratives and pixel-art scenes.
 

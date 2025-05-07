@@ -8,6 +8,8 @@
     --secondary-color: #8080ff;
     --accent-color: #ff4d4d;
     --border-color: #33334d;
+    --disabled-color: #555;
+    --disabled-text-color: #999;
 }
 
 * {
@@ -21,92 +23,142 @@ body {
     background-color: var(--bg-color);
     color: var(--text-color);
     line-height: 1.6;
-    padding: 20px;
+    padding: 10px; /* Reduced padding for mobile */
 }
 
 .game-container {
-    max-width: 800px;
+    width: 100%;
+    max-width: none; /* Allow container to stretch full width */
     margin: 0 auto;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 20px); /* Full height minus body padding */
 }
 
 h1 {
-    margin-bottom: 20px;
+    margin-bottom: 15px;
+    font-size: 1.5em; /* Adjust size */
     color: var(--primary-color);
     text-shadow: 2px 2px 0px #000;
+    flex-shrink: 0; /* Prevent shrinking */
 }
 
-.game-area {
-    background-color: rgba(0, 0, 0, 0.5);
-    border: 4px solid var(--border-color);
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
+/* History Log Container */
+.history-log {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    padding: 10px;
+    margin-bottom: 10px;
+    flex-grow: 1;
+    align-items: baseline
 }
 
-.image-container {
-    margin-bottom: 20px;
-}
-
-#scene-image {
-    max-width: 100%;
-    height: auto;
-    border: 4px solid var(--border-color);
-    image-rendering: pixelated;
-}
-
-.narration-container {
-    background-color: rgba(0, 0, 0, 0.7);
-    border: 4px solid var(--border-color);
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 20px;
-    min-height: 150px;
-    text-align: left;
-    overflow-y: auto;
-    max-height: 300px;
-}
-
-.narration {
-    font-size: 14px;
-    letter-spacing: 1px;
-    line-height: 1.8;
-}
-
-.choices-container {
+/* Individual Turn Container */
+.turn-container {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    width: 90%;            /* Wider on mobile */
+    min-width: 320px;       /* Increased minimum width */
+    flex-shrink: 0;
+    gap: 15px;
+    padding: 15px;
+    margin-right: 15px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background-color: rgba(20, 20, 40, 0.7);
+}
+
+.turn-image-container {
+    position: relative; /* enable overlay positioning */
+    width: 100%; /* Image container takes full width */
+    max-width: 1024px; /* Optional: Max width for image on mobile */
+    margin: 0 auto; /* Center image container */
+    min-height: 50px; /* Prevent collapsing before image loads */
+}
+
+.turn-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 3px solid var(--border-color);
+    image-rendering: pixelated;
+    background-color: #000;
+    position: relative;
+    z-index: 1;
+}
+
+.turn-content {
+    text-align: left;
+    width: 100%; /* Content takes full width */
+}
+
+.turn-narration {
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    line-height: 1.7;
+    margin-bottom: 15px;
+}
+
+.turn-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* Increased gap between buttons */
 }
 
 .choice-button {
     background-color: var(--primary-color);
     color: var(--text-color);
     border: none;
-    padding: 10px 15px;
+    padding: 10px 15px; /* Slightly larger padding */
     font-family: 'Press Start 2P', monospace;
-    font-size: 12px;
+    font-size: 11px;
     cursor: pointer;
     border: 2px solid var(--border-color);
-    transition: all 0.2s;
+    transition: background-color 0.2s;
+    text-align: left;
+    width: 100%; /* Force buttons to take full width */
 }
 
-.choice-button:hover {
+.choice-button:hover:not(:disabled) {
     background-color: var(--secondary-color);
-    transform: scale(1.02);
 }
 
-.choice-button:active {
+.choice-button:active:not(:disabled) {
     transform: scale(0.98);
+}
+
+.choice-button:disabled {
+    background-color: var(--disabled-color);
+    color: var(--disabled-text-color);
+    cursor: default;
+    border-color: #444;
+}
+
+/* Highlight selected choice button */
+.choice-button.selected {
+    background-color: var(--accent-color);
+    color: var(--text-color);
+    border-color: var(--accent-color);
+}
+
+/* Status Container */
+.status-container {
+     flex-shrink: 0; /* Prevent shrinking */
+     margin-top: auto; /* Push to bottom */
+     padding-top: 10px;
 }
 
 .connection-status {
     font-size: 12px;
     color: var(--accent-color);
-    margin-top: 10px;
 }
 
-/* Animation for text streaming */
+/* Blinking Cursor */
 @keyframes blink {
     0% { opacity: 1; }
     50% { opacity: 0; }
@@ -115,20 +167,115 @@ h1 {
 
 .cursor {
     display: inline-block;
-    width: 10px;
-    height: 14px;
+    width: 8px;
+    height: 13px;
     background-color: var(--text-color);
     animation: blink 1s infinite;
-    margin-left: 2px;
+    margin-left: 1px;
+    vertical-align: baseline;
 }
 
-/* Responsive design */
-@media (max-width: 600px) {
-    .narration {
-        font-size: 12px;
+/* Desktop Adjustments */
+@media (min-width: 768px) { /* Adjust breakpoint */
+    .turn-container {
+        max-width: 600px; 
+        padding: 20px;
+        margin-right: 20px;
+    }
+
+     .turn-image-container {
+         max-width: 1024px; /* Allow larger images */
+     }
+
+    .turn-narration {
+        font-size: 14px;
     }
     
     .choice-button {
-        font-size: 10px;
+        font-size: 12px;
+        padding: 10px 15px;
     }
+
+     .connection-status {
+        font-size: 14px;
+    }
+
+     .cursor {
+        width: 10px;
+        height: 14px;
+    }
+} 
+
+/* Pixel-art loader */
+.pixel-loader {
+    z-index: 10; /* keep loader on top */
+    width: 32px; /* Doubled size */
+    height: 32px; /* Doubled size */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.pixel-loader div {
+    width: 8px; /* Doubled size */
+    height: 8px; /* Doubled size */
+    background: var(--primary-color);
+    position: absolute;
+    top: 12px;  /* Adjusted for new size: (32-8)/2 */
+    left: 12px; /* Adjusted for new size: (32-8)/2 */
+    box-shadow: 
+        12px  0px 0 var(--primary-color), /* E */
+        12px  12px 0 var(--primary-color), /* SE */
+        0px   12px 0 var(--primary-color), /* S */
+        -12px 12px 0 var(--primary-color), /* SW */
+        -12px 0px  0 var(--primary-color), /* W */
+        -12px -12px 0 var(--primary-color),/* NW */
+        0px   -12px 0 var(--primary-color),/* N */
+        12px  -12px 0 var(--primary-color);/* NE */
+    animation: spin-pixel 1s linear infinite;
+    image-rendering: pixelated;
+}
+
+@keyframes spin-pixel {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+} 
+
+/* Markdown bold styling */
+.md-bold {
+    font-weight: bold;
+    color: yellow;
+}
+
+/* Style for image loading error indicator */
+.image-error-icon {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    font-size: 1.5em;
+    cursor: pointer;
+    z-index: 20;
+    background-color: rgba(0, 0, 0, 0.5); /* Slight background for visibility */
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+/* Style for image error tooltip */
+.image-error-tooltip {
+    position: absolute;
+    top: 30px; /* Position below the icon */
+    right: 5px;
+    background-color: rgba(0, 0, 0, 0.85);
+    color: var(--accent-color);
+    border: 1px solid var(--border-color);
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px; /* Smaller font for tooltip */
+    font-family: monospace; /* Use a basic font */
+    max-width: 250px;
+    z-index: 30;
+    display: none; /* Controlled by JS */
+    text-align: left;
+    line-height: 1.4;
 } 
