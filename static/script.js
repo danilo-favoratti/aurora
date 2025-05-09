@@ -53,11 +53,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         socket.onclose = () => {
             isConnected = false;
-            connectionStatus.textContent = 'Disconnected. Reconnecting...';
+            connectionStatus.textContent = 'Disconnected. Attempting to reconnect...';
             connectionStatus.style.color = '#ff4d4d';
-            // Clear the history log on disconnect before reconnecting
-            console.log("[WebSocket Close] Clearing history log.");
-            historyLog.innerHTML = '';
+            console.log("[WebSocket Close] History log will NOT be cleared automatically.");
             setTimeout(connectWebSocket, 3000);
         };
 
