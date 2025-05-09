@@ -5,9 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aurora's Journey</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 </head>
 <body>
     <div class="game-container">
+        <div id="embed-iframe"></div>
+
+        <br/>
+
         <h1>Aurora's Journey</h1>
         
         <div id="history-log" class="history-log">
@@ -19,6 +24,21 @@
         </div>
     </div>
     
+    <script>
+    window.onSpotifyIframeApiReady = (IFrameAPI) => {
+        const element = document.getElementById('embed-iframe');
+        const options = {
+            uri: 'spotify:playlist:3DaOwR7YkalXW3cLwu9Tnx',
+            width: '100%',
+            type: "rich",
+            height: '152',
+            theme: '0'
+        };
+        const callback = (EmbedController) => {};
+        IFrameAPI.createController(element, options, callback);
+    };
+    </script>
+
     <script src="script.js"></script>
 </body>
 </html> 

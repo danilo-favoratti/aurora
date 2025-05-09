@@ -278,4 +278,34 @@ h1 {
     display: none; /* Controlled by JS */
     text-align: left;
     line-height: 1.4;
+}
+
+/* Spotify Player Container Styling */
+.spotify-player-container {
+    margin-bottom: 15px;
+    width: 100%;
+    max-width: 500px; /* Optional: constrain player width */
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Spotify IFrame API container */
+#embed-iframe {
+    border-bottom: 3px solid var(--border-color); /* Add bottom border */
+    padding-bottom: 10px; /* Optional: add some padding below the iframe before the border */
+    /* The IFrame API will inject an iframe inside this div. 
+       The API itself controls the iframe's dimensions. 
+       If you need to control the overall size, you might pass width/height options to createController 
+       or style the div to constrain the iframe, though the iframe usually expands to fit its content. */
+}
+
+/* Game End Message Styling */
+.game-end-message {
+    color: var(--accent-color); /* Red */
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.8em; /* Larger font size */
+    text-align: center;
+    padding: 20px 0;
+    font-weight: bold;
+    text-shadow: 2px 2px 0px #000; /* Optional: Add a little shadow like h1 */
 } 

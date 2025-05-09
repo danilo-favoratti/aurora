@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentNarrationElement = null; // Reference to the current turn's narration div
     let currentChoicesElement = null; // Reference to the current turn's choices div
     let cursorElement = null;
+    let isGameFinished = false; // Flag to indicate if the game has ended
 
     // State for parsing narration stream character-by-character
     let fullResponseText = ''; // Accumulates the raw JSON stream for optional final sync
@@ -91,6 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'error':
                 handleErrorMessage(data);
                 break;
+            case 'game_end': // New case for game_end
+                handleGameEndMessage(data);
+                break;
             default:
                 console.warn('[WebSocket Warning] Unknown message type:', data.type);
         }
@@ -98,6 +102,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Creates a new container for a turn in the history log
     function createNewTurnElement() {
+        if (isGameFinished) { // Check if game has finished
+            console.log("[createNewTurnElement] Game has finished. Not creating new turn element.");
+            return; 
+        }
         const turnId = turnIdCounter++; // Assign and increment
         currentTurnElement = document.createElement('div');
         currentTurnElement.className = 'turn-container';
@@ -300,8 +308,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log(`[Choice Click] Sending choice for next turn_id: ${nextTurnId}`);
                     socket.send(JSON.stringify(messageToSend));
                     
-                    // Create structure for the *next* turn
-                    createNewTurnElement();
+                    // Create structure for the *next* turn only if game not finished
+                    if (!isGameFinished) {
+                        createNewTurnElement();
+                    }
                 }
             });
             currentChoicesElement.appendChild(button);
@@ -361,6 +371,31 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(`[handleErrorMessage] Could not find target turn element for turn_id: ${turnId} to display error.`);
         }
         scrollToBottom(); // Scroll regardless of error type
+    }
+
+    // Handle game end messages
+    function handleGameEndMessage(data) {
+        console.log("[handleGameEndMessage] Received game_end message:", data.message);
+        isGameFinished = true; // Set the flag
+
+        if (currentChoicesElement) {
+            currentChoicesElement.innerHTML = ''; // Clear any existing buttons or content
+            
+            const endMessageElement = document.createElement('div');
+            endMessageElement.className = 'game-end-message';
+            endMessageElement.textContent = "THE END!";
+            currentChoicesElement.appendChild(endMessageElement);
+        } else {
+            console.warn("[handleGameEndMessage] currentChoicesElement is null. Cannot display THE END message.");
+        }
+        
+        // Ensure cursor is removed if it exists from narration of the final turn
+        if (cursorElement && currentNarrationElement && currentNarrationElement.contains(cursorElement)) {
+            currentNarrationElement.removeChild(cursorElement);
+            cursorElement = null;
+        }
+
+        scrollToBottom();
     }
 
     // Utility to scroll history log to bottom
