@@ -29,11 +29,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     if session_id not in connected_clients:
         # Create RPGSession using the class imported from rpg_session.py
         connected_clients[session_id] = RPGSession(session_id)
-    
+
     session = connected_clients[session_id]
 
     try:
-        if not session.game_concluded:
+        if not session.game_concluded: 
             await session.start_game(websocket)
         else:
             if websocket.client_state == WebSocketState.CONNECTED:
@@ -54,12 +54,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             try:
                 user_data = json.loads(data)
                 choice = user_data.get("choice", "")
-                turn_id = user_data.get("turn_id")
+                turn_id = user_data.get("turn_id") 
                 
                 if session.game_concluded: # Double check before processing
                     print(f"[Session {session_id}] Game concluded. Ignoring choice: {choice}")
                     continue # Ignore choices if game ended during this loop iteration
-
+                
                 if choice and turn_id is not None:
                     await session.process_user_choice(choice, turn_id, websocket)
                 elif choice:

@@ -10,14 +10,14 @@ from starlette.websockets import WebSocketState # For checking client_state
 # Config imports
 from config import (
     # client, # No longer directly used by RPGSession for OpenAI calls
-    SYSTEM_PROMPT,
     CHARACTER_IMAGE_PATHS,
     MAX_GAME_TURNS,
     INTRO_PROMPT,
     INITIAL_CHOICES, 
     INITIAL_IMAGE_PROMPT,
     USE_PLACEHOLDER_INITIAL_IMAGE,
-    # Potentially add DETAILED_CHARACTER_DESCRIPTIONS here if you move them to config
+    DETAILED_CHARACTER_DESCRIPTIONS,
+    IMAGE_STYLE_GUIDE # Import the new style guide
 )
 
 # Image utilities import
@@ -27,32 +27,59 @@ from image_utils import (
     get_placeholder_image_data
 )
 
+# Import for OpenAI Agents SDK
+from agents import Agent, Runner
+
 # Import the OpenAI service and the custom exception
 from openai_service import (
-    get_chat_completion_stream,
     edit_image_with_openai,
-    edit_image_with_multiple_inputs_openai,
-    OpenAIServiceError # Import the custom exception
+    edit_image_with_multiple_inputs_openai
+)
+
+# Import from the new agent_service
+from openai_agent_service import (
+    initialize_storyteller_agent,
+    get_agent_story_response,
+    StoryResponse,
+    GameContext,
+    Character,
+    QuestState
 )
 
 class RPGSession:
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "Start a new fantasy adventure."},
-        ]
+
+        self.messages = []
+        
         self.current_narration = ""
         self.current_choices = []
         self.current_image_prompt = ""
         self.current_characters_in_scene = []
-        self.complete_response = ""
         self.background_tasks = set()
-        self.reference_image_bytes: bytes | None = None
-        self.reference_image_mime: str | None = None
+        self.reference_image_bytes: bytes | None = None # This will be updated after each image generation
+        self.reference_image_mime: str | None = None    # Should typically remain 'image/png'
         self.turn_number = 0
         self.game_concluded = False
-
+        self.storyteller_agent = initialize_storyteller_agent()
+        self.theme_selected = False
+        self.objectives_explained = False
+        self.game_objectives_narration: str | None = None
+        self.last_assistant_response_json: str | None = None
+        
+        # Initialize game context
+        self.game_context = GameContext()
+        # Add Aurora as the initial character
+        self.game_context.characters.append(Character(
+            name="aurora",
+            description=DETAILED_CHARACTER_DESCRIPTIONS.get("aurora", "Aurora, the main character"),
+            in_scene=True
+        ))
+        
+        self.runner = Runner()
+        self.runner.agent = self.storyteller_agent
+        self.runner.context = self.game_context
+        
     def _create_background_task(self, coro):
         """Helper to create, store, and manage cleanup of background tasks."""
         task = asyncio.create_task(coro)
@@ -66,159 +93,207 @@ class RPGSession:
             print(f"[Session {self.session_id}] Game already concluded. Ignoring choice: {choice}")
             return
 
-        self.turn_number += 1
-        print(f"[Session {self.session_id}] Processing Turn Number: {self.turn_number}")
+        raw_user_choice = choice # Keep the original choice for logging if needed
+        current_input_for_agent = ""
 
-        user_content_for_api = choice
-        if self.turn_number >= MAX_GAME_TURNS:
-            self.game_concluded = True
-            print(f"[Session {self.session_id}] Max turns reached. Concluding game.")
-            user_content_for_api = "The story is now coming to an end. Please provide a final concluding narration. Do not offer any choices."
-
-        self.messages.append({"role": "user", "content": user_content_for_api})
+        if not self.theme_selected:
+            self.theme_selected = True
+            self.turn_number = 1 # This is the first gameplay turn number
+            self.game_context.current_turn = 1
+            self.game_context.theme = raw_user_choice
+            print(f"[Session {self.session_id}] Theme selected: {raw_user_choice}. Processing as Turn Number: {self.turn_number}. Requesting objective explanation.")
+            current_input_for_agent = f"O tema do jogo foi escolhido: '{raw_user_choice}'. Com base neste tema, configure o jogo (ambiente, entidades, quest) conforme suas instruções. IMPORTANTE: Em sua narração para ESTA PRIMEIRA RODADA DE JOGO APÓS A ESCOLHA DO TEMA, você DEVE começar explicando os objetivos gerais do jogo. Após explicar os objetivos, descreva o cenário inicial e forneça as primeiras opções de jogo."
+        else:
+            self.turn_number += 1
+            self.game_context.current_turn = self.turn_number
+            print(f"[Session {self.session_id}] Processing Turn Number: {self.turn_number}")
+            if self.turn_number >= MAX_GAME_TURNS:
+                self.game_concluded = True
+                print(f"[Session {self.session_id}] Max turns reached ({MAX_GAME_TURNS}). Concluding game.")
+                current_input_for_agent = "A história está chegando ao fim. Forneça uma narração final conclusiva. Não ofereça escolhas."
+            else:
+                objective_reminder = "Lembrete dos objetivos principais: " + (self.game_objectives_narration if self.game_objectives_narration else "Objetivos não definidos claramente na primeira rodada.")
+                previous_narration_summary = "Resumo da cena anterior: Nenhum ainda." # Default if no last response
+                if self.last_assistant_response_json:
+                    try:
+                        last_response_data = json.loads(self.last_assistant_response_json)
+                        previous_narration_summary = "Resumo da cena anterior: " + last_response_data.get("narration", "Não foi possível obter a narração anterior.")[:150] # Summary
+                    except json.JSONDecodeError:
+                        previous_narration_summary = "Resumo da cena anterior: (erro ao processar narração anterior)"
+                
+                current_input_for_agent = (
+                    f"{objective_reminder}\n\n"
+                    f"{previous_narration_summary}\n\n"
+                    f"A escolha do jogador para esta rodada foi: '{raw_user_choice}'.\n"
+                    f"Continue a história a partir daqui, descrevendo o resultado desta escolha e o novo estado da cena. Forneça novas opções. Não explique os objetivos do jogo novamente."
+                )
+        
         self.current_narration = ""
         self.current_choices = []
         self.current_image_prompt = ""
-        self.complete_response = ""
-
-        chat_stream = None # Initialize chat_stream
+        
+        agent_response_object: StoryResponse | None = None
         try:
-            # Get the async generator object by calling the service function (NO await here)
-            chat_stream = get_chat_completion_stream(self.messages, self.session_id)
-        except OpenAIServiceError as e: # Should not be raised by just calling, but during iteration.
-                                      # However, if get_chat_completion_stream had some immediate error before yielding.
-            print(f"[Session {self.session_id}] Error obtaining chat stream: {e}")
+            # openai_agent_service currently uses input=current_input_for_agent, 
+            # and conversation_history is just for logging in openai_agent_service.
+            # The Agent SDK is expected to make the self.storyteller_agent stateful.
+            agent_response_object = await get_agent_story_response(
+                self.runner,
+                self.game_context,
+                current_input_for_agent, 
+                list(self.messages), # Pass current history for context (openai_agent_service currently only logs its length)
+                self.session_id
+            )
+            if agent_response_object is None:
+                raise Exception("Agent service returned no response or an error occurred in service.")
+
+            # Log the actual input sent to the agent for this turn, then the agent's response.
+            self.messages.append({"role": "user", "content": current_input_for_agent}) 
+            self.last_assistant_response_json = agent_response_object.model_dump_json()
+            self.messages.append({"role": "assistant", "content": self.last_assistant_response_json})
+
+            if self.turn_number == 1 and not self.objectives_explained:
+                self.objectives_explained = True
+                self.game_objectives_narration = agent_response_object.narration
+
+            # Check if all objectives are completed
+            if self.game_context.quest_state == QuestState.COMPLETED:
+                self.game_concluded = True
+                print(f"[Session {self.session_id}] All objectives completed! Concluding game.")
+                current_input_for_agent = "Todos os objetivos foram concluídos! Forneça uma narração final conclusiva. Não ofereça escolhas."
+                return
+
+        except Exception as e: 
+            print(f"[Session {self.session_id}] !!! Error getting response from Agent Service: {e}")
             if websocket.client_state == WebSocketState.CONNECTED:
                 try:
                     await websocket.send_text(json.dumps(
-                        {"type": "error", "content": "OpenAI API Error (Chat Setup): Check server logs."}))
+                        {"type": "error", "content": f"Storyteller Agent Service Error: Check server logs for details."}))
                 except Exception as send_e:
-                    print(f"[Session {self.session_id}] Error sending API error message to client: {send_e}")
+                    print(f"[Session {self.session_id}] Error sending agent service error message to client: {send_e}")
             return
         
-        token_count = 0
         try:
-            # Iterate directly over the async generator returned by the service
-            async for chunk_obj in chat_stream:
-                if hasattr(chunk_obj.choices[0].delta, 'content') and chunk_obj.choices[0].delta.content is not None:
-                    token = chunk_obj.choices[0].delta.content
-                    token_count += 1
-                    self.complete_response += token
-                    if websocket.client_state == WebSocketState.CONNECTED:
-                        try:
-                            await websocket.send_text(json.dumps({"type": "text", "content": token}))
-                        except Exception as send_e:
-                            print(f"[Session {self.session_id}] Error sending stream token: {send_e}. Aborting.")
-                            for task in list(self.background_tasks): task.cancel()
-                            return
-                    else:
-                        print(f"[Session {self.session_id}] WebSocket disconnected during stream. Aborting.")
-                        for task in list(self.background_tasks): task.cancel()
-                        return
-        except OpenAIServiceError as e: # Catch errors raised during stream generation
-            print(f"[Session {self.session_id}] Error during OpenAI stream processing: {e}")
-            if websocket.client_state == WebSocketState.CONNECTED:
-                try:
-                    await websocket.send_text(json.dumps({"type": "error", "content": "Error processing story stream."}))
-                except Exception as send_e:
-                    print(f"[Session {self.session_id}] Error sending stream processing error to client: {send_e}")
-            return
-
-        # Process the complete response
-        try:
-            cleaned_response = self.complete_response.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-            cleaned_response = cleaned_response.strip()
-            cleaned_response = cleaned_response.replace("\\\\'.", "'.")
+            self.current_narration = agent_response_object.narration
+            self.current_choices = agent_response_object.choices
+            self.current_image_prompt = agent_response_object.image_prompt
+            self.current_characters_in_scene = agent_response_object.characters_in_scene
             
-            response_data = json.loads(cleaned_response)
-            self.current_narration = response_data.get("narration", "")
-            self.current_choices = response_data.get("choices", [])
-            self.current_image_prompt = response_data.get("image_prompt", "")
-            self.current_characters_in_scene = response_data.get("characters_in_scene", [])
+            # Send objectives to client
+            if websocket.client_state == WebSocketState.CONNECTED:
+                objectives_data = []
+                for obj in self.game_context.objectives: # self.game_context.objectives is updated by the agent tool
+                    obj_data = {"objective": obj.objective, "finished": obj.finished}
+                    if obj.partially_complete: # Check if the field exists and has a value
+                        obj_data["partially_complete"] = obj.partially_complete
+                    objectives_data.append(obj_data)
+                
+                print(f"[Session {self.session_id}] DEBUG: Sending objectives_data to client: {objectives_data}")
+                
+                await websocket.send_text(json.dumps({
+                    "type": "objectives",
+                    "content": objectives_data,
+                    "turn_id": turn_id
+                }))
+            
             print(f"[Session {self.session_id}] Parsed characters in scene: {self.current_characters_in_scene}")
+
+            if websocket.client_state == WebSocketState.CONNECTED and self.current_narration:
+                await websocket.send_text(json.dumps({"type": "narration_block", "content": self.current_narration, "turn_id": turn_id }))
 
             if self.current_image_prompt and websocket.client_state == WebSocketState.CONNECTED:
                 print(f"[Session {self.session_id}] Triggering image generation for prompt: '{self.current_image_prompt}' with characters: {self.current_characters_in_scene}")
                 self._create_background_task(self.generate_scene(self.current_image_prompt, turn_id, websocket))
             elif not self.current_image_prompt:
-                 print(f"[Session {self.session_id}] No image prompt found. Skipping image generation.")
+                 print(f"[Session {self.session_id}] No image prompt. Skipping image generation.")
 
             if websocket.client_state == WebSocketState.CONNECTED:
                 if not self.game_concluded and self.current_choices:
-                    await websocket.send_text(json.dumps({"type": "choices", "content": self.current_choices}))
-                self.messages.append({"role": "assistant", "content": cleaned_response})
+                    await websocket.send_text(json.dumps({"type": "choices", "content": self.current_choices, "turn_id": turn_id}))
             else:
-                print(f"[Session {self.session_id}] Skipping sending choices: WebSocket disconnected.")
-        except json.JSONDecodeError as json_err:
-            print(f"[Session {self.session_id}] !!! JSON Parsing Error: {json_err} on response: {self.complete_response}")
-            error_msg = "Error: Storyteller response format incorrect."
+                print(f"[Session {self.session_id}] Skipping sending choices/narration: WebSocket disconnected.")
+        except Exception as e: 
+            error_msg = f"Error processing agent Pydantic response: {str(e)}"
+            print(f"[Session {self.session_id}] !!! {error_msg} (Response object was: {str(agent_response_object)[:500]})")
             if websocket.client_state == WebSocketState.CONNECTED:
-                try: await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
-                except Exception as send_e: print(f"[Session {self.session_id}] Error sending JSON parse error: {send_e}")
-        except Exception as e:
-            error_msg = f"Error processing response: {str(e)}"
-            print(f"[Session {self.session_id}] !!! Error processing response: {e}")
-            if websocket.client_state == WebSocketState.CONNECTED:
-                try: await websocket.send_text(json.dumps({"type": "error", "content": "Server error processing response.", "turn_id": turn_id}))
+                try: await websocket.send_text(json.dumps({"type": "error", "content": "Server error processing agent response.", "turn_id": turn_id}))
                 except Exception as send_e: print(f"[Session {self.session_id}] Error sending generic processing error: {send_e}")
 
     async def start_game(self, websocket: WebSocket):
-        self.turn_number = 0
+        self.turn_number = 0 # Initial state before any theme choice is processed by agent
         self.game_concluded = False
-        initial_turn_id = 0
-        use_placeholder = USE_PLACEHOLDER_INITIAL_IMAGE
-
-        initial_narration = INTRO_PROMPT
-        initial_choices_str = INITIAL_CHOICES
-        try:
-            initial_choices = json.loads(initial_choices_str)
+        self.theme_selected = False # Reset flag
+        self.objectives_explained = False # Reset this flag too
+        self.messages = [] # Clear message history for a new game
+        self.game_objectives_narration = None
+        self.last_assistant_response_json = None
+        self.game_context = GameContext()  # Reset game context
+        self.game_context.characters.append(Character(
+            name="aurora",
+            description=DETAILED_CHARACTER_DESCRIPTIONS.get("aurora", "Aurora, the main character"),
+            in_scene=True
+        ))
+        initial_turn_id_for_theme_selection = 0 # This is for the theme selection UI turn
+        
+        initial_narration = INTRO_PROMPT # e.g., "Escolha seu Tema"
+        initial_choices_list = []
+        try: 
+            initial_choices_list = json.loads(INITIAL_CHOICES) # Theme options
         except json.JSONDecodeError:
-            print(f"[Session {self.session_id}] Error decoding INITIAL_CHOICES. Using default. Value: {initial_choices_str}")
-            initial_choices = ["Roda Gigante", "Algodão Doce", "Fantasia de Borboleta", "Gatinhos Fofos"]
-        initial_image_prompt = INITIAL_IMAGE_PROMPT
+            print(f"[Session {self.session_id}] Error decoding INITIAL_CHOICES. Using default. Value: {INITIAL_CHOICES}")
+            initial_choices_list = ["Fallback Theme 1", "Fallback Theme 2"]
+        
+        # This is for the image accompanying the theme selection, not from agent yet.
+        initial_image_prompt_text = INITIAL_IMAGE_PROMPT 
 
+        # Send initial narration (theme prompt)
         if websocket.client_state == WebSocketState.CONNECTED:
-            if use_placeholder:
-                print(f"[Session {self.session_id}] Using placeholder for initial image.")
-                img_bytes, img_mime, b64_placeholder = get_placeholder_image_data("images/aurora.png")
+            await websocket.send_text(json.dumps({"type": "narration_block", "content": initial_narration, "turn_id": initial_turn_id_for_theme_selection}))
+
+        # Image for theme selection screen
+        if websocket.client_state == WebSocketState.CONNECTED:
+            if USE_PLACEHOLDER_INITIAL_IMAGE or not initial_image_prompt_text: 
+                print(f"[Session {self.session_id}] Using placeholder for initial theme selection image.")
+                img_bytes, img_mime, b64_placeholder = get_placeholder_image_data("images/aurora_first_image.png") # Default Aurora image
                 if img_bytes and img_mime and b64_placeholder:
-                    self.reference_image_bytes = img_bytes
+                    self.reference_image_bytes = img_bytes # Set Aurora as initial reference
                     self.reference_image_mime = img_mime
-                    try: await websocket.send_text(json.dumps({"type": "image", "content": b64_placeholder, "turn_id": initial_turn_id}))
+                    try: await websocket.send_text(json.dumps({"type": "image", "content": b64_placeholder, "turn_id": initial_turn_id_for_theme_selection}))
                     except Exception as e: 
                         error_msg = f"Error sending placeholder: {e}"
                         print(f"[Session {self.session_id}] {error_msg}")
-                        await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": initial_turn_id}))
+                        await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": initial_turn_id_for_theme_selection}))
                         return
-                else:
-                    error_msg = "Error loading placeholder image via image_utils."
+                else: 
+                    error_msg = "Error loading placeholder image for theme selection."
                     print(f"[Session {self.session_id}] {error_msg}")
-                    await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": initial_turn_id}))
+                    await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": initial_turn_id_for_theme_selection}))
                     return
             else:
-                # Call generate_image which now uses the openai_service
-                self._create_background_task(self.generate_image(initial_image_prompt, "auto", initial_turn_id, websocket, base64_image="images/aurora.png"))
+                print(f"[Session {self.session_id}] Generating initial image for theme selection from prompt: '{initial_image_prompt_text[:50]}...'")
+                # This generate_image call sets self.reference_image_bytes to Aurora's initial edited image
+                self._create_background_task(self.generate_image(initial_image_prompt_text, "auto", initial_turn_id_for_theme_selection, websocket, base64_image="images/aurora.png"))
         else:
-            print(f"Skipping initial image/placeholder for {self.session_id}: WebSocket disconnected.")
-            return
-        initial_assistant_message = json.dumps({"narration": initial_narration, "choices": initial_choices, "image_prompt": initial_image_prompt})
-        for char in initial_assistant_message:
-            if websocket.client_state != WebSocketState.CONNECTED: print(f"Initial stream interrupted for {self.session_id}: WebSocket disconnected."); return
-            await websocket.send_text(json.dumps({"type": "text", "content": char}))
-            await asyncio.sleep(0.01)
+            print(f"Skipping initial image/placeholder for theme selection: WebSocket disconnected.")
+            return 
+        
+        # Send initial choices (theme options)
         if websocket.client_state == WebSocketState.CONNECTED:
-            await websocket.send_text(json.dumps({"type": "choices", "content": initial_choices}))
-            self.messages.append({"role": "assistant", "content": initial_assistant_message})
-        else: print(f"Skipping initial choices for {self.session_id}: WebSocket disconnected.")
+            await websocket.send_text(json.dumps({"type": "choices", "content": initial_choices_list, "turn_id": initial_turn_id_for_theme_selection}))
+        
+        # Log the setup for theme selection (not an agent response)
+        initial_setup_log = json.dumps({
+            "narration": initial_narration,
+            "choices": initial_choices_list,
+            "image_prompt": "Theme selection screen - initial image prompt used: " + initial_image_prompt_text
+        })
+        self.messages.append({"role": "assistant", "content": initial_setup_log})
 
     async def generate_image(self, prompt: str, background: str, turn_id: int, websocket: WebSocket, base64_image: str = ""):
         try:
-            styled_prompt = f"Uma imagem no estilo *modern pixel-art* de: {prompt}"
-            print(f"[Image Prompt] {styled_prompt}")
+            # Prepend common style guide to the specific prompt for this image
+            final_prompt = f"{IMAGE_STYLE_GUIDE}\n\nScene details: {prompt}"
+            print(f"[Image Prompt with Style Guide] {final_prompt}")
             if not base64_image: raise ValueError("No base64_image provided to generate_image()")
 
             processed_image_bytes, processed_image_mime = None, None
@@ -228,20 +303,32 @@ class RPGSession:
                  processed_image_bytes, processed_image_mime = process_base64_image(base64_image)
 
             if not processed_image_bytes or not processed_image_mime: raise ValueError("Failed to load/process base image.")
-            self.reference_image_bytes = processed_image_bytes
+            
+            # This method generates the INITIAL reference image (e.g. Aurora)
+            # Its output becomes the first self.reference_image_bytes
+            self.reference_image_bytes = processed_image_bytes 
             self.reference_image_mime = processed_image_mime
             
-            # Use OpenAI Service for image editing
             image_b64 = await edit_image_with_openai(
                 image_bytes=self.reference_image_bytes,
                 image_mime=self.reference_image_mime,
                 image_filename="reference.png",
-                prompt=styled_prompt,
+                prompt=final_prompt, # Use the combined prompt
                 session_id=self.session_id
             )
-            if image_b64 is None: # API call failed in service
-                raise Exception("OpenAI image editing failed in service.")
-            
+            if image_b64 is None: 
+                raise Exception("OpenAI image editing failed in service for generate_image.")
+
+            # After successful generation of the *initial* edited image (e.g., Aurora based on default prompt),
+            # update self.reference_image_bytes with this new image so generate_scene can use it.
+            new_image_bytes = base64.b64decode(image_b64)
+            # Further process it to ensure it's a valid PNG for the next edit round, if necessary,
+            # though edit_image_with_openai should return b64_json of a PNG.
+            # For simplicity, let's assume b64_json is a direct PNG bytes source after decode.
+            self.reference_image_bytes = new_image_bytes 
+            # self.reference_image_mime typically remains "image/png"
+            print(f"[Session {self.session_id}] self.reference_image_bytes updated by generate_image output.")
+
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "image", "content": image_b64, "turn_id": turn_id}))
                 except RuntimeError as e: 
@@ -262,76 +349,95 @@ class RPGSession:
     async def generate_scene(self, prompt: str, turn_id: int, websocket: WebSocket):
         try:
             if not self.reference_image_bytes or not self.reference_image_mime:
-                error_msg = "Cannot generate scene: Aurora's reference image not available."
+                error_msg = "Cannot generate scene: Previous image (self.reference_image_bytes) is not available."
                 print(f"[Session {self.session_id}] {error_msg}")
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
                 return
 
-            # Initialize api_image_inputs with Aurora (the base image for editing)
+            # Start with the output of the previous turn as the base image to edit.
+            # The service function `edit_image_with_multiple_inputs_openai` expects a list of tuples:
+            # (filename, BytesIO_object, mime_type)
             api_image_inputs = [
-                ("aurora.png", io.BytesIO(self.reference_image_bytes), self.reference_image_mime)
+                ("previous_scene_output.png", io.BytesIO(self.reference_image_bytes), self.reference_image_mime)
             ]
-            print(f"[S {self.session_id}] Added aurora.png (base) to API image inputs.")
+            print(f"[S {self.session_id}] Using previous scene output as the first image for editing.")
 
-            scene_style_image_loaded = False
-            scene_style_path = "images/scene_style.png"
-            style_img_bytes, style_img_mime = load_image_from_path(scene_style_path)
-            if style_img_bytes and style_img_mime:
-                api_image_inputs.append(("scene_style.png", io.BytesIO(style_img_bytes), style_img_mime))
-                scene_style_image_loaded = True
-                print(f"[S {self.session_id}] Added scene_style.png to API image inputs.")
-            else:
-                print(f"[S {self.session_id}] scene_style.png not found/failed to load.")
+            # Add original reference images for other characters in the scene for context.
+            # These are passed in the list, but the API will likely only use the first as the primary editable image.
+            # Their main influence will be through the detailed text prompt.
+            characters_to_add_references_for = [cn for cn in self.current_characters_in_scene]
+            # If Aurora is in current_characters_in_scene, her original reference could be added too,
+            # in addition to her being part of previous_scene_output.png.
+            # Or, we rely on previous_scene_output.png to carry her visual forward.
+            # Let's add original references for all characters listed, including Aurora if present.
+            # The service will decide if it sends one or many (currently configured to send many if >1).
 
-            # Add images for all other characters currently in the scene
-            # self.current_characters_in_scene is set by process_user_choice from LLM response
-            other_characters_in_scene = [cn for cn in self.current_characters_in_scene if cn != "aurora"]
+            temp_filenames_for_logging = ["previous_scene_output.png"] 
 
-            for char_name in other_characters_in_scene:
+            for char_name in characters_to_add_references_for: # Iterate through all chars in scene
+                # Skip adding previous_scene_output again if char_name is aurora and we consider previous_scene_output as her latest version.
+                # However, adding original references might help guide the prompt interpretation.
+                # For now, let's add original references for all specified characters if not already the base.
+                
+                is_base_image_aurora = (char_name == "aurora") # Assuming Aurora is inherently in reference_image_bytes
+                
+                # If we want to send original character files as additional context:
                 char_image_path = CHARACTER_IMAGE_PATHS.get(char_name)
                 if char_image_path:
-                    char_bytes, char_mime = load_image_from_path(char_image_path)
-                    if char_bytes and char_mime:
-                        api_image_inputs.append((f"{char_name}.png", io.BytesIO(char_bytes), char_mime))
-                        print(f"[S {self.session_id}] Added {char_name}.png to API image inputs.")
-                    else: 
-                        print(f"[S {self.session_id}] Image file not found or failed to load for {char_name} at {char_image_path}. Skipping this character image.")
+                    # Only add if not Aurora AND Aurora is the base (to avoid sending aurora.png if previous_scene is already her)
+                    # This logic gets complex. Simpler: always send previous scene + original refs of chars in scene.
+                    # The `edit_image_with_multiple_inputs_openai` handles the list.
+                    
+                    # Let's ensure we don't add the *exact same BytesIO object* if Aurora is the base
+                    # and also in current_characters_in_scene.
+                    # The primary image for editing is already api_image_inputs[0]
+                    # Add other character *original* reference images.
+                    if char_name == "aurora" and api_image_inputs[0][0] == "previous_scene_output.png":
+                        # We are already sending previous scene which contains Aurora.
+                        # Optionally, we could add the *original* images/aurora.png for strong reference.
+                        # For now, let's assume previous_scene_output carries Aurora forward from the edit.
+                        # If other characters are present, their original files are added.
+                        print(f"[S {self.session_id}] Aurora is part of the base image to be edited. Her original ref won't be added separately unless logic changes.")
+                    elif char_name != "aurora": # Add original reference for other characters
+                        char_bytes, char_mime = load_image_from_path(char_image_path)
+                        if char_bytes and char_mime:
+                            api_image_inputs.append((f"{char_name}_original_ref.png", io.BytesIO(char_bytes), char_mime))
+                            temp_filenames_for_logging.append(f"{char_name}_original_ref.png")
+                            print(f"[S {self.session_id}] Added {char_name}_original_ref.png for context.")
+                        else: 
+                            print(f"[S {self.session_id}] Original image for {char_name} not found/loaded.")
                 else: 
-                    print(f"[S {self.session_id}] No image path defined in CHARACTER_IMAGE_PATHS for character: {char_name}. Skipping this character image.")
+                    print(f"[S {self.session_id}] No image path for char: {char_name}.")
             
-            # Detailed character descriptions for the prompt (as implemented before)
-            detailed_character_desc = {
-                "aurora": "Aurora, a one-year-old girl with bright blonde hair in a blue top-knot chuquinha, clear blue eyes, and a consistently cheerful expression, wearing her usual blue dress",
-                "davi": "Davi, a tall man with a slightly cynical but loving smile, dark short-cropped hair, often seen wearing a simple dark t-shirt and jeans",
-                "barbara": "Barbara, a woman with brown eyes, wise and loving eyes, wearing red t-shirt and blue jeans",
-                "lari": "Lari, blonde short hair, blue eyes, wearing a red jacket and dark blue jeans and brown boots",
-                "danilo": "Danilo, black hair, brown eyes. wearing a green Mars t-shirt, blue jeans and brown boots"
-            }
+            # Construct the text prompt
             prompt_character_descriptions = []
             for char_name in self.current_characters_in_scene:
-                if char_name in detailed_character_desc:
-                    prompt_character_descriptions.append(detailed_character_desc[char_name])
+                if char_name in DETAILED_CHARACTER_DESCRIPTIONS:
+                    prompt_character_descriptions.append(DETAILED_CHARACTER_DESCRIPTIONS[char_name])
                 else:
                     prompt_character_descriptions.append(char_name)
             characters_for_prompt_string = ". ".join(prompt_character_descriptions)
-            base_scene_description = prompt 
-            final_scene_prompt_text = f"{characters_for_prompt_string}. Scene: {base_scene_description}"
-            style_guidance = "Create a detailed pixel art scene. "
-            if scene_style_image_loaded:
-                style_guidance = "Create a detailed pixel art scene (use the style of the reference 'scene_style.png', which is pixel art). "
-            styled_prompt_scene = style_guidance + final_scene_prompt_text
+            
+            final_scene_prompt_text = f"{IMAGE_STYLE_GUIDE}\n\nCharacters to include: {characters_for_prompt_string}.\nScene details based on story: {prompt}"
                                    
-            print(f"[Scene Prompt Used] {styled_prompt_scene}")
-            print(f"[S {self.session_id}] Characters for DALL-E prompt text: {self.current_characters_in_scene}. Number of images passed to service: {len(api_image_inputs)}")
+            # print(f"[Scene Prompt Used] {final_scene_prompt_text}")
+            print(f"[S {self.session_id}] Images sent to service: {temp_filenames_for_logging}")
 
+            # Call the service function that can handle a list of images
             image_b64 = await edit_image_with_multiple_inputs_openai(
                 image_files_for_api=api_image_inputs, 
-                prompt=styled_prompt_scene,
+                prompt=final_scene_prompt_text,
                 session_id=self.session_id
             )
+
             if image_b64 is None: 
-                raise Exception("OpenAI multi-image editing failed in service.")
+                raise Exception("OpenAI multi-image editing failed in service for generate_scene.")
+
+            # CRUCIAL: Update self.reference_image_bytes with the NEWLY generated scene for the NEXT turn.
+            self.reference_image_bytes = base64.b64decode(image_b64)
+            self.reference_image_mime = "image/png" # Assuming service returns PNG
+            print(f"[Session {self.session_id}] self.reference_image_bytes updated by generate_scene output for turn {turn_id}.")
 
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "image", "content": image_b64, "turn_id": turn_id}))

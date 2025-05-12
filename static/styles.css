@@ -23,17 +23,19 @@ body {
     background-color: var(--bg-color);
     color: var(--text-color);
     line-height: 1.6;
-    padding: 10px; /* Reduced padding for mobile */
+    padding: 10px;
+    overflow-y: auto; /* ADDED: Ensure body can scroll vertically */
 }
 
 .game-container {
     width: 100%;
-    max-width: none; /* Allow container to stretch full width */
+    max-width: none;
     margin: 0 auto;
     text-align: center;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 20px); /* Full height minus body padding */
+    min-height: calc(100vh - 20px); /* CHANGED: from height to min-height */
+    /* overflow: hidden; Ensure this is not present if vertical scroll is desired */
 }
 
 h1 {
@@ -50,12 +52,12 @@ h1 {
     display: flex;
     flex-direction: row;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: hidden; /* To prevent double scrollbars, main page scrolls */
     flex-wrap: nowrap;
     padding: 10px;
     margin-bottom: 10px;
     flex-grow: 1;
-    align-items: baseline
+    align-items: flex-start; /* CHANGED: from baseline */
 }
 
 /* Individual Turn Container */
@@ -102,6 +104,8 @@ h1 {
     letter-spacing: 0.5px;
     line-height: 1.7;
     margin-bottom: 15px;
+    white-space: pre-wrap; /* ADDED: Helps with text layout for vertical growth */
+    overflow-wrap: break-word; /* ADDED: Helps with text layout */
 }
 
 .turn-choices {
@@ -148,9 +152,10 @@ h1 {
 
 /* Status Container */
 .status-container {
-     flex-shrink: 0; /* Prevent shrinking */
-     margin-top: auto; /* Push to bottom */
+     flex-shrink: 0;
+     /* margin-top: auto; Removed to allow Spotify to be pushed down by history log naturally */
      padding-top: 10px;
+     margin-bottom: 15px; /* ADDED: Space before Spotify */
 }
 
 .connection-status {
@@ -291,12 +296,14 @@ h1 {
 
 /* Spotify IFrame API container */
 #embed-iframe {
-    border-bottom: 3px solid var(--border-color); /* Add bottom border */
-    padding-bottom: 10px; /* Optional: add some padding below the iframe before the border */
-    /* The IFrame API will inject an iframe inside this div. 
-       The API itself controls the iframe's dimensions. 
-       If you need to control the overall size, you might pass width/height options to createController 
-       or style the div to constrain the iframe, though the iframe usually expands to fit its content. */
+    border-top: 3px solid var(--border-color);
+    padding-top: 15px;
+    margin-top: auto; /* Push to bottom of flex container if game-container is flex */
+    width: 100%; 
+    max-width: 500px; /* Consistent max-width */
+    margin-left: auto;
+    margin-right: auto;
+    flex-shrink: 0; /* Prevent it from shrinking */
 }
 
 /* Game End Message Styling */
@@ -308,4 +315,72 @@ h1 {
     padding: 20px 0;
     font-weight: bold;
     text-shadow: 2px 2px 0px #000; /* Optional: Add a little shadow like h1 */
+}
+
+/* Debug Menu */
+.debug-menu {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background-color: rgba(26, 26, 46, 0.95);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    color: var(--text-color);
+    font-family: 'Press Start 2P', monospace;
+    z-index: 1000;
+    display: none;
+    min-width: 500px;
+    min-height: 300px;
+    max-width: 400px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    margin-bottom: 120px; /* Added margin to account for Spotify player */
+}
+
+.debug-menu h3 {
+    font-size: 14px;
+    margin-bottom: 10px;
+    color: var(--primary-color);
+}
+
+.debug-menu h4 {
+    font-size: 12px;
+    margin-bottom: 8px;
+    color: var(--secondary-color);
+}
+
+.debug-section {
+    margin-bottom: 15px;
+}
+
+#objectives-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#objectives-list li {
+    font-size: 11px;
+    margin-bottom: 8px;
+    padding: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#objectives-list li.completed {
+    background-color: rgba(77, 255, 77, 0.1);
+    border-color: #4dff4d;
+}
+
+#objectives-list li.completed::before {
+    content: "✓";
+    color: #4dff4d;
+}
+
+#objectives-list li.pending::before {
+    content: "○";
+    color: var(--accent-color);
 } 
