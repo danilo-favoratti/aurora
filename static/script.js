@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const connectionStatus = document.getElementById('connection-status');
     const debugMenu = document.getElementById('debug-menu');
     const objectivesList = document.getElementById('objectives-list');
+    const debugImageRepeatToggle = document.getElementById('debug-image-repeat-toggle');
+    const debugImageRepeatStatus = document.getElementById('debug-image-repeat-status');
+    const savePdfButton = document.getElementById('save-pdf-button');
 
     // Global turn counter for unique IDs
     let turnIdCounter = 0;
@@ -42,10 +45,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update objectives list
     function updateObjectivesList(objectives) {
         objectivesList.innerHTML = '';
+        if (!objectives || objectives.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = "No objectives yet.";
+            objectivesList.appendChild(li);
+            return;
+        }
         objectives.forEach(obj => {
             const li = document.createElement('li');
-            li.textContent = obj.objective;
             li.className = obj.finished ? 'completed' : 'pending';
+
+            const textContainer = document.createElement('span');
+            textContainer.className = 'objective-text-container';
+
+            let mainObjectiveText = obj.objective;
+            textContainer.appendChild(document.createTextNode(mainObjectiveText));
+
+            // Only add JS-generated count if there's no partially_complete string (which might contain its own count)
+            if (obj.target_count && obj.target_count > 0 && !obj.partially_complete) {
+                const current = obj.current_count || 0;
+                const countSpan = document.createElement('span');
+                countSpan.className = 'objective-count';
+                countSpan.textContent = ` (${current}/${obj.target_count})`;
+                textContainer.appendChild(countSpan);
+            }
+
+            if (obj.partially_complete && !obj.finished) {
+                 const partialSpan = document.createElement('span');
+                 partialSpan.className = 'partial-progress';
+                 // Ensure there's a space if mainObjectiveText and countSpan were already added
+                 let separator = textContainer.childNodes.length > 1 ? " " : ""; 
+                 partialSpan.textContent = `${separator}- ${obj.partially_complete}`;
+                 textContainer.appendChild(partialSpan);
+            }
+            
+            li.appendChild(textContainer);
             objectivesList.appendChild(li);
         });
     }
@@ -55,7 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return text
             .replace(/\*\*(.+?)\*\*/g, '<span class="md-bold">$1</span>')
             .replace(/\*(.+?)\*/g, '<span class="md-bold">$1</span>')
-            .replace(/([.!?])\s*/g, '$1<br><br>');
+            .replace(/([.!?])\s*/g, '$1<br><br>')
+            .replace(/(:)\s*/g, '$1<br><br>')
+            .replace(/(;)\s*/g, '$1<br><br>')
+            .replace(/(\.\.\.)\s*/g, '$1<br><br>');
     }
 
     // Cursor management functions
@@ -94,8 +131,10 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("[WebSocket Open] Initial turnIdCounter set to 0.");
             isGameFinished = false;
             historyLog.innerHTML = '';
+            if (objectivesList) objectivesList.innerHTML = '';
             turnNarrationStatus = {}; // Reset on new connection
             pendingChoices = {};    // Reset on new connection
+            fetchDebugImageRepeat(); // Fetch and set debug status on connect/reconnect
             createNewTurnElement(turnIdCounter);
         };
         socket.onclose = () => {
@@ -489,6 +528,239 @@ document.addEventListener('DOMContentLoaded', () => {
     function scrollToBottom() {
         // Scroll horizontally to the end to show the latest turn
         historyLog.scrollLeft = historyLog.scrollWidth;
+    }
+
+    // Fetch current debug image repeat status
+    async function fetchDebugImageRepeat() {
+        try {
+            const res = await fetch('/debug/image-generation');
+            const data = await res.json();
+            debugImageRepeatToggle.checked = !!data.debug_image_repeat;
+            debugImageRepeatStatus.textContent = data.debug_image_repeat ? 'ON' : 'OFF';
+        } catch (e) {
+            debugImageRepeatStatus.textContent = 'Error';
+        }
+    }
+
+    // Set debug image repeat status
+    async function setDebugImageRepeat(value) {
+        try {
+            const res = await fetch('/debug/image-generation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ debug_image_repeat: value })
+            });
+            const data = await res.json();
+            debugImageRepeatStatus.textContent = data.debug_image_repeat ? 'ON' : 'OFF';
+        } catch (e) {
+            debugImageRepeatStatus.textContent = 'Error';
+        }
+    }
+
+    // Listen for toggle changes
+    if (debugImageRepeatToggle) {
+        debugImageRepeatToggle.addEventListener('change', (e) => {
+            setDebugImageRepeat(debugImageRepeatToggle.checked);
+        });
+    }
+
+    // Show debug menu if F8 is pressed (already handled above)
+    // Fetch debug status on load
+    fetchDebugImageRepeat();
+
+    // PDF Generation Function
+    async function generatePdf() {
+        if (isGameFinished || turnIdCounter > 0) { 
+            console.log("[PDF] Starting PDF generation...");
+            connectionStatus.textContent = "Generating PDF...";
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'p',
+                unit: 'pt',
+                format: 'a4'
+            });
+
+            const pageMargin = 30; 
+            const fullPageWidth = doc.internal.pageSize.getWidth();
+            const fullPageHeight = doc.internal.pageSize.getHeight();
+            const pageWidth = fullPageWidth - (2 * pageMargin); // Overall content width
+            let currentY = pageMargin;
+            
+            const imageMaxWidth = pageWidth * 0.95; 
+            const imageMaxHeight = fullPageHeight * 0.45; 
+            
+            // Text block specific constants
+            const textBlockMaxWidth = pageWidth * 0.70; // Text blocks will take 70% of content width, increasing side margins
+            const textBlockXOffset = pageMargin + (pageWidth - textBlockMaxWidth) / 2; // X-offset to center the text block
+            
+            const narrationFontSize = 8; 
+            const choiceFontSize = 7;   
+            const lineSpacing = 8; 
+            const textBlockInternalTopPadding = narrationFontSize * 1.4; 
+            const textBlockSidePadding = 6; // Padding INSIDE the border for text
+            const textBlockBottomPadding = 6;
+            const borderColor = [77, 77, 255]; 
+            const defaultTextColor = [230, 230, 230];
+            const selectedChoiceColor = [255, 255, 0]; 
+            const textBorderThickness = 2; // Reset to 2, as the request was for margin, not border thickness
+
+            // Font setup (same as before)
+            const fontName = "PressStart2P";
+            const fontFileName = "PressStart2P-Regular.ttf";
+            const fontUrl = `fonts/${fontFileName}`; 
+            let fontSuccessfullyLoaded = false;
+            try {
+                const fontResponse = await fetch(fontUrl);
+                if (!fontResponse.ok) throw new Error(`Font file not found: ${fontUrl}`);
+                const fontBlob = await fontResponse.blob();
+                const reader = new FileReader();
+                await new Promise((resolve, reject) => {
+                    reader.onloadend = () => {
+                        try {
+                            const fontBase64 = reader.result.split(',')[1];
+                            doc.addFileToVFS(fontFileName, fontBase64);
+                            doc.addFont(fontFileName, fontName, "normal");
+                            doc.setFont(fontName);
+                            fontSuccessfullyLoaded = true;
+                            resolve(true);
+                        } catch (e) { reject(e); }
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(fontBlob);
+                });
+            } catch (e) {
+                console.error("[PDF] Error custom font:", e, "Fallback: Helvetica.");
+                doc.setFont("Helvetica", "normal");
+            }
+
+            const turnContainers = historyLog.querySelectorAll('.turn-container');
+            if (turnContainers.length === 0) {
+                alert("No story content to save.");
+                connectionStatus.textContent = isConnected ? 'Connected' : 'Disconnected';
+                return;
+            }
+
+            for (let i = 0; i < turnContainers.length; i++) {
+                const turn = turnContainers[i];
+                if (i > 0) doc.addPage();
+                currentY = pageMargin;
+                doc.setFillColor(26, 26, 46); 
+                doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
+                doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
+                
+                const imgElement = turn.querySelector('.turn-image');
+                if (imgElement && imgElement.src && imgElement.src !== PLACEHOLDER_IMG_SRC) {
+                    try {
+                        if (!imgElement.complete || imgElement.naturalWidth === 0) {
+                            await new Promise((resolve, reject) => { 
+                                imgElement.onload = resolve; imgElement.onerror = reject; 
+                                if (imgElement.complete && imgElement.naturalWidth !== 0) resolve();
+                            });
+                        }
+                        const imgData = imgElement.src;
+                        const originalWidth = imgElement.naturalWidth || 512;
+                        const originalHeight = imgElement.naturalHeight || 512;
+                        let imgPdfWidth = originalWidth;
+                        let imgPdfHeight = originalHeight;
+                        if (imgPdfWidth > imageMaxWidth) {
+                            imgPdfWidth = imageMaxWidth;
+                            imgPdfHeight = (imgPdfWidth / originalWidth) * originalHeight;
+                        }
+                        if (imgPdfHeight > imageMaxHeight) {
+                            imgPdfHeight = imageMaxHeight;
+                            imgPdfWidth = (imgPdfHeight / originalHeight) * originalWidth;
+                        }
+                        const imgX = pageMargin + (pageWidth - imgPdfWidth) / 2;
+                        doc.setFillColor(0, 0, 0);
+                        doc.rect(imgX - 2, currentY - 2, imgPdfWidth + 4, imgPdfHeight + 4, 'F');
+                        doc.addImage(imgData, 'PNG', imgX, currentY, imgPdfWidth, imgPdfHeight);
+                        currentY += imgPdfHeight + lineSpacing * 2;
+                    } catch (e) { doc.text(`[Image N/A]`, pageMargin, currentY); currentY += narrationFontSize + lineSpacing; }
+                } else { doc.text(`[No image]`, pageMargin, currentY); currentY += narrationFontSize + lineSpacing; }
+
+                const narrationElement = turn.querySelector('.turn-narration');
+                if (narrationElement && narrationElement.textContent.trim() !== "") {
+                    doc.setFontSize(narrationFontSize);
+                    const narrationText = narrationElement.innerHTML.replace(/<br\s*\/?>/gi, '\n').replace(/<span class="md-bold">(.+?)<\/span>/gi, '$1').replace(/<[^>]+>/g, '');
+                    const splitNarration = doc.splitTextToSize(narrationText, textBlockMaxWidth - (textBlockSidePadding * 2));
+                    const textHeight = doc.getTextDimensions(splitNarration).h;
+                    const narrationBlockHeight = textHeight + textBlockInternalTopPadding + textBlockBottomPadding;
+
+                    if (currentY + narrationBlockHeight > fullPageHeight - pageMargin) {
+                        doc.addPage(); currentY = pageMargin;
+                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
+                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal"); 
+                    }
+                    doc.setLineWidth(textBorderThickness);
+                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+                    doc.rect(textBlockXOffset - textBlockSidePadding, currentY - textBlockSidePadding, textBlockMaxWidth, narrationBlockHeight, 'S');
+                    doc.text(splitNarration, textBlockXOffset, currentY + narrationFontSize);
+                    currentY += narrationBlockHeight + lineSpacing * 2;
+                }
+
+                const choicesElement = turn.querySelector('.turn-choices');
+                if (choicesElement && choicesElement.children.length > 0 && choicesElement.children[0].tagName === 'BUTTON') {
+                    doc.setFontSize(choiceFontSize);
+                    const choicesTitle = "Choices:";
+                    const choicesTitleHeight = choiceFontSize * 1.2 + lineSpacing;
+                    if (currentY + choicesTitleHeight > fullPageHeight - pageMargin) {
+                        doc.addPage(); currentY = pageMargin;
+                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
+                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
+                    }
+                    doc.text(choicesTitle, textBlockXOffset, currentY);
+                    currentY += choicesTitleHeight;
+
+                    let choiceY = currentY; 
+                    let allChoicesText = [];
+                    choicesElement.querySelectorAll('.choice-button').forEach(button => {
+                        allChoicesText.push({text: `- ${button.textContent}`, selected: button.classList.contains('selected')});
+                    });
+                    
+                    const splitChoicesForHeight = doc.splitTextToSize(allChoicesText.map(c => c.text).join('\n'), textBlockMaxWidth - (textBlockSidePadding*2) - 10);
+                    const choicesBlockHeight = doc.getTextDimensions(splitChoicesForHeight).h + textBlockInternalTopPadding + textBlockBottomPadding;
+
+                    if (choiceY + choicesBlockHeight > fullPageHeight - pageMargin) {
+                        doc.addPage(); choiceY = pageMargin; currentY = pageMargin;
+                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
+                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
+                    }
+                    
+                    doc.setLineWidth(textBorderThickness);
+                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+                    doc.rect(textBlockXOffset - textBlockSidePadding, choiceY - textBlockSidePadding, textBlockMaxWidth, choicesBlockHeight, 'S');
+
+                    let textYForChoice = choiceY + choiceFontSize;
+                    allChoicesText.forEach(choiceObj => {
+                        const choiceLines = doc.splitTextToSize(choiceObj.text, textBlockMaxWidth - (textBlockSidePadding*2) - 10);
+                        if (choiceObj.selected) {
+                            doc.setTextColor(selectedChoiceColor[0], selectedChoiceColor[1], selectedChoiceColor[2]);
+                        }
+                        doc.text(choiceLines, textBlockXOffset + 10, textYForChoice);
+                        if (choiceObj.selected) {
+                            doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                        }
+                        textYForChoice += doc.getTextDimensions(choiceLines).h + lineSpacing * 0.5;
+                    });
+                    currentY = choiceY + choicesBlockHeight + lineSpacing;
+                }
+            }
+            doc.save('AurorasJourney.pdf');
+            console.log("[PDF] PDF Saved.");
+            connectionStatus.textContent = isConnected ? 'Connected' : 'Disconnected';
+        } else {
+            alert("No story to save yet, or game has not started!");
+        }
+    }
+
+    // Add event listener for the PDF button
+    if (savePdfButton) {
+        savePdfButton.addEventListener('click', generatePdf);
     }
 
     // Initialize WebSocket connection

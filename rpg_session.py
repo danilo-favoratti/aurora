@@ -17,7 +17,8 @@ from config import (
     INITIAL_IMAGE_PROMPT,
     USE_PLACEHOLDER_INITIAL_IMAGE,
     DETAILED_CHARACTER_DESCRIPTIONS,
-    IMAGE_STYLE_GUIDE # Import the new style guide
+    IMAGE_STYLE_GUIDE, # Import the new style guide
+    get_debug_image_repeat_status, # Import the getter
 )
 
 # Image utilities import
@@ -80,6 +81,8 @@ class RPGSession:
         self.runner.agent = self.storyteller_agent
         self.runner.context = self.game_context
         
+        self.first_image_b64 = None  # Store the first image's base64 for debug repeat
+        
     def _create_background_task(self, coro):
         """Helper to create, store, and manage cleanup of background tasks."""
         task = asyncio.create_task(coro)
@@ -110,9 +113,22 @@ class RPGSession:
             if self.turn_number >= MAX_GAME_TURNS:
                 self.game_concluded = True
                 print(f"[Session {self.session_id}] Max turns reached ({MAX_GAME_TURNS}). Concluding game.")
-                current_input_for_agent = "A história está chegando ao fim. Forneça uma narração final conclusiva. Não ofereça escolhas."
+                current_input_for_agent = "A história está chegando ao fim. Forneça uma narração final conclusiva. Não ofereça escolhas. Diga que apesar dos objetivos iniciais não terem sido alcançados, o objetivo de se divertir é o principal e esse foi atingido!"
             else:
-                objective_reminder = "Lembrete dos objetivos principais: " + (self.game_objectives_narration if self.game_objectives_narration else "Objetivos não definidos claramente na primeira rodada.")
+                # Construct a more focused objective reminder
+                pending_objectives_texts = []
+                if self.game_context.objectives_initialized and self.game_context.objectives:
+                    for obj in self.game_context.objectives:
+                        if not obj.finished:
+                            pending_objectives_texts.append(f"ID {obj.id}: {obj.objective}")
+                
+                if pending_objectives_texts:
+                    objective_reminder = "Lembrete dos objetivos PENDENTES: " + "; ".join(pending_objectives_texts) + "."
+                elif self.game_context.objectives_initialized:
+                    objective_reminder = "Todos os objetivos iniciais parecem estar concluídos! Verifique se a quest deve terminar ou se há algo mais a fazer."
+                else:
+                    objective_reminder = "Objetivos ainda não foram definidos."
+
                 previous_narration_summary = "Resumo da cena anterior: Nenhum ainda." # Default if no last response
                 if self.last_assistant_response_json:
                     try:
@@ -156,45 +172,40 @@ class RPGSession:
                 self.objectives_explained = True
                 self.game_objectives_narration = agent_response_object.narration
 
-            # Check if all objectives are completed
-            if self.game_context.quest_state == QuestState.COMPLETED:
-                self.game_concluded = True
-                print(f"[Session {self.session_id}] All objectives completed! Concluding game.")
-                current_input_for_agent = "Todos os objetivos foram concluídos! Forneça uma narração final conclusiva. Não ofereça escolhas."
-                return
-
-        except Exception as e: 
-            print(f"[Session {self.session_id}] !!! Error getting response from Agent Service: {e}")
-            if websocket.client_state == WebSocketState.CONNECTED:
-                try:
-                    await websocket.send_text(json.dumps(
-                        {"type": "error", "content": f"Storyteller Agent Service Error: Check server logs for details."}))
-                except Exception as send_e:
-                    print(f"[Session {self.session_id}] Error sending agent service error message to client: {send_e}")
-            return
-        
-        try:
+            # Process Pydantic response and send to client
             self.current_narration = agent_response_object.narration
             self.current_choices = agent_response_object.choices
             self.current_image_prompt = agent_response_object.image_prompt
             self.current_characters_in_scene = agent_response_object.characters_in_scene
             
-            # Send objectives to client
+            # Send objectives to client FIRST, so it's up-to-date before narration of potential final turn
             if websocket.client_state == WebSocketState.CONNECTED:
                 objectives_data = []
-                for obj in self.game_context.objectives: # self.game_context.objectives is updated by the agent tool
-                    obj_data = {"objective": obj.objective, "finished": obj.finished}
-                    if obj.partially_complete: # Check if the field exists and has a value
+                for obj in self.game_context.objectives: 
+                    obj_data = {"id": obj.id, "objective": obj.objective, "finished": obj.finished}
+                    if obj.target_count is not None:
+                        obj_data["target_count"] = obj.target_count
+                        obj_data["current_count"] = obj.current_count
+                    if obj.partially_complete: 
                         obj_data["partially_complete"] = obj.partially_complete
                     objectives_data.append(obj_data)
                 
-                print(f"[Session {self.session_id}] DEBUG: Sending objectives_data to client: {objectives_data}")
-                
+                print(f"[Session {self.session_id}] DEBUG: Sending objectives_data to client (Turn {turn_id}): {objectives_data}")
                 await websocket.send_text(json.dumps({
                     "type": "objectives",
                     "content": objectives_data,
-                    "turn_id": turn_id
+                    "turn_id": turn_id 
                 }))
+
+            # Now check for game conclusion based on objectives *after* agent might have updated them
+            if self.game_context.quest_state == QuestState.COMPLETED and not self.game_concluded:
+                self.game_concluded = True # Set game_concluded here
+                print(f"[Session {self.session_id}] All objectives completed! Game concluding this turn (Turn {turn_id}).")
+                # Agent should have provided a final narration. Choices should be empty.
+                # If not, the agent didn't follow instructions for final turn properly.
+                if self.current_choices and len(self.current_choices) > 0:
+                    print(f"[Session {self.session_id}] WARNING: Game is concluding, but agent provided choices: {self.current_choices}. Clearing them.")
+                    self.current_choices = [] # Ensure no choices on game end
             
             print(f"[Session {self.session_id}] Parsed characters in scene: {self.current_characters_in_scene}")
 
@@ -208,8 +219,11 @@ class RPGSession:
                  print(f"[Session {self.session_id}] No image prompt. Skipping image generation.")
 
             if websocket.client_state == WebSocketState.CONNECTED:
+                # Only send choices if the game is NOT concluded in this very turn
                 if not self.game_concluded and self.current_choices:
                     await websocket.send_text(json.dumps({"type": "choices", "content": self.current_choices, "turn_id": turn_id}))
+                elif self.game_concluded:
+                    print(f"[Session {self.session_id}] Game concluded this turn. No choices will be sent.")
             else:
                 print(f"[Session {self.session_id}] Skipping sending choices/narration: WebSocket disconnected.")
         except Exception as e: 
@@ -254,10 +268,14 @@ class RPGSession:
         if websocket.client_state == WebSocketState.CONNECTED:
             if USE_PLACEHOLDER_INITIAL_IMAGE or not initial_image_prompt_text: 
                 print(f"[Session {self.session_id}] Using placeholder for initial theme selection image.")
-                img_bytes, img_mime, b64_placeholder = get_placeholder_image_data("images/aurora_first_image.png") # Default Aurora image
+                img_bytes, img_mime, b64_placeholder = get_placeholder_image_data("images/aurora_first_image.png")
                 if img_bytes and img_mime and b64_placeholder:
-                    self.reference_image_bytes = img_bytes # Set Aurora as initial reference
+                    self.reference_image_bytes = img_bytes
                     self.reference_image_mime = img_mime
+                    # Store the placeholder as the first image if debug repeat might be used
+                    if self.first_image_b64 is None:
+                        self.first_image_b64 = b64_placeholder 
+                        print(f"[Session {self.session_id}] Stored placeholder as first_image_b64 for debug repeat.")
                     try: await websocket.send_text(json.dumps({"type": "image", "content": b64_placeholder, "turn_id": initial_turn_id_for_theme_selection}))
                     except Exception as e: 
                         error_msg = f"Error sending placeholder: {e}"
@@ -319,6 +337,10 @@ class RPGSession:
             if image_b64 is None: 
                 raise Exception("OpenAI image editing failed in service for generate_image.")
 
+            # Store the first image for debug repeat
+            if self.first_image_b64 is None:
+                self.first_image_b64 = image_b64
+
             # After successful generation of the *initial* edited image (e.g., Aurora based on default prompt),
             # update self.reference_image_bytes with this new image so generate_scene can use it.
             new_image_bytes = base64.b64decode(image_b64)
@@ -332,7 +354,7 @@ class RPGSession:
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "image", "content": image_b64, "turn_id": turn_id}))
                 except RuntimeError as e: 
-                    if "after sending \'websocket.close\'." in str(e): print(f"[S {self.session_id}] Failed to send image for T{turn_id}: WS closed.")
+                    if "after sending 'websocket.close'." in str(e): print(f"[S {self.session_id}] Failed to send image for T{turn_id}: WS closed.")
                     else: raise
             else: print(f"[S {self.session_id}] WS no longer connected. Skipping send generated initial image for T{turn_id}.")
         except asyncio.CancelledError: print(f"[S {self.session_id}] generate_image task cancelled for T{turn_id}.")
@@ -342,12 +364,19 @@ class RPGSession:
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
                 except RuntimeError as e_send:
-                    if "after sending \'websocket.close\'." in str(e_send): print(f"[S {self.session_id}] Failed to send error for T{turn_id} (initial image): WS closed.")
+                    if "after sending 'websocket.close'." in str(e_send): print(f"[S {self.session_id}] Failed to send error for T{turn_id} (initial image): WS closed.")
                     else: raise
             else: print(f"[S {self.session_id}] WS no longer connected. Skipping send error for initial image for T{turn_id}.")
 
     async def generate_scene(self, prompt: str, turn_id: int, websocket: WebSocket):
         try:
+            # Debug: Repeat the first image if flag is enabled by calling the getter
+            if get_debug_image_repeat_status() and self.first_image_b64 is not None:
+                print(f"[Session {self.session_id}] DEBUG_IMAGE_REPEAT via getter is ON. Reusing first image for turn {turn_id}.")
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({"type": "image", "content": self.first_image_b64, "turn_id": turn_id}))
+                return
+
             if not self.reference_image_bytes or not self.reference_image_mime:
                 error_msg = "Cannot generate scene: Previous image (self.reference_image_bytes) is not available."
                 print(f"[Session {self.session_id}] {error_msg}")
@@ -442,7 +471,7 @@ class RPGSession:
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "image", "content": image_b64, "turn_id": turn_id}))
                 except RuntimeError as e:
-                    if "after sending \'websocket.close\'." in str(e): print(f"[S {self.session_id}] Failed to send scene image for T{turn_id}: WS closed.")
+                    if "after sending 'websocket.close'." in str(e): print(f"[S {self.session_id}] Failed to send scene image for T{turn_id}: WS closed.")
                     else: raise
             else: print(f"[S {self.session_id}] WS no longer connected. Skipping send generated scene image for T{turn_id}.")
         except asyncio.CancelledError: print(f"[S {self.session_id}] generate_scene task cancelled for T{turn_id}.")
@@ -452,6 +481,6 @@ class RPGSession:
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
                 except RuntimeError as e_send:
-                    if "after sending \'websocket.close\'." in str(e_send): print(f"[S {self.session_id}] Failed to send error for T{turn_id} (scene image): WS closed.")
+                    if "after sending 'websocket.close'." in str(e_send): print(f"[S {self.session_id}] Failed to send error for T{turn_id} (scene image): WS closed.")
                     else: raise 
             else: print(f"[S {self.session_id}] WS no longer connected. Skipping send error for scene image for T{turn_id}.") 

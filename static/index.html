@@ -8,27 +8,39 @@
     <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 </head>
 <body>
-    <div class="game-container">
-        <div id="debug-menu" class="debug-menu">
-            <h3>Debug Menu (F8)</h3>
-            <div class="debug-section">
-                <h4>Objectives</h4>
-                <ul id="objectives-list"></ul>
+    <div class="main-layout-container">
+        <div class="game-content-area">
+            <h1>Aurora's Journey</h1>
+            <div id="history-log" class="history-log">
+                <!-- Turns will be added here dynamically -->
+            </div>
+            <div class="status-container">
+                <!-- Button was here, now moved -->
             </div>
         </div>
-        
-        <h1>Aurora's Journey</h1>
-        
-        <div id="history-log" class="history-log">
-            <!-- Turns will be added here dynamically -->
-        </div>
-        
-        <div class="status-container">
+
+        <div class="objectives-panel">
+            <!-- REMOVED <p id="objectives-connection-status" class="objectives-connection-status">Connected</p> -->
+            <h2>Objectives</h2>
+            <ul id="objectives-list"></ul>
+            <button id="save-pdf-button" class="action-button">Save to PDF</button>
             <div id="connection-status" class="connection-status">Connecting...</div>
         </div>
-
-        <div id="embed-iframe"></div>
     </div>
+
+    <div id="debug-menu" class="debug-menu">
+        <h3>Debug Menu (F8)</h3>
+        <div class="debug-section">
+            <h4>Image Generation</h4>
+            <label>
+                <input type="checkbox" id="debug-image-repeat-toggle">
+                Repeat First Image (🖼️)
+            </label>
+            <span id="debug-image-repeat-status"></span>
+        </div>
+    </div>
+
+    <div id="embed-iframe"></div>
     
     <script>
     window.onSpotifyIframeApiReady = (IFrameAPI) => {
@@ -45,6 +57,7 @@
     };
     </script>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html> 

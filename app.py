@@ -3,7 +3,7 @@ import json
 import os
 # base64, io, PIL.Image are no longer directly used in app.py
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect # WebSocketDisconnect needed for endpoint
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request # WebSocketDisconnect needed for endpoint
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketState # WebSocketState needed for endpoint
 
@@ -15,6 +15,7 @@ from starlette.websockets import WebSocketState # WebSocketState needed for endp
 
 # Import RPGSession from its new file
 from rpg_session import RPGSession
+import config # Import the config module directly
 
 app = FastAPI()
 
@@ -25,96 +26,147 @@ connected_clients = {}
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
+    print(f"[App] WebSocket {session_id} accepted.")
 
     if session_id not in connected_clients:
-        # Create RPGSession using the class imported from rpg_session.py
+        print(f"[App] New session: {session_id}. Creating RPGSession.")
         connected_clients[session_id] = RPGSession(session_id)
-
+    else:
+        print(f"[App] Reconnecting or existing session: {session_id}.")
+    
     session = connected_clients[session_id]
+    print(f"[App] Session {session_id} obtained. Game concluded: {session.game_concluded}")
 
     try:
         if not session.game_concluded: 
+            print(f"[App Session {session_id}] Calling start_game...")
             await session.start_game(websocket)
+            print(f"[App Session {session_id}] start_game completed.")
         else:
+            print(f"[App Session {session_id}] Game already concluded. Sending final state.")
             if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_text(json.dumps({"type": "text", "content": session.current_narration or "The story had already concluded."}))
+                # Prepare objectives data safely
+                objectives_data = []
+                if hasattr(session, 'game_context') and session.game_context and session.game_context.objectives:
+                    objectives_data = [
+                        {"id": obj.id, "objective": obj.objective, "finished": obj.finished, 
+                         "target_count": obj.target_count, "current_count": obj.current_count,
+                         "partially_complete": obj.partially_complete}
+                        for obj in session.game_context.objectives
+                    ]
+                else:
+                    print(f"[App Session {session_id}] No game_context.objectives to send for concluded game.")
+                
+                await websocket.send_text(json.dumps({
+                    "type": "narration_block", 
+                    "content": session.current_narration or "The story had already concluded.", 
+                    "turn_id": session.turn_number
+                }))
+                await websocket.send_text(json.dumps({
+                    "type": "objectives", 
+                    "content": objectives_data, 
+                    "turn_id": session.turn_number
+                }))
                 await websocket.send_text(json.dumps({"type": "game_end", "message": "This story has already concluded."}))
-            # If game already concluded and we don't close, client might be confused if it tries to reconnect to this state.
-            # However, per request, we are not closing. Client should handle UI based on game_end message.
-            # return # Exiting here would prevent the receive loop for already concluded games if we want to keep socket open.
+            print(f"[App Session {session_id}] Final state sent for concluded game.")
 
         while True:
             if session.game_concluded:
-                print(f"[Session {session_id}] Game is concluded. WebSocket receive loop will idle if connection kept open.")
-                # Instead of breaking, we let it idle. Or, we could break and rely on finally not closing.
-                # For now, let it break to prevent further processing if client sends unexpected data post-game_end.
+                print(f"[App Session {session_id}] Game is concluded. Breaking WebSocket receive loop.")
                 break 
 
+            print(f"[App Session {session_id}] Waiting for client message...")
             data = await websocket.receive_text()
+            print(f"[App Session {session_id}] Received data: {data[:100]}...")
+            
             try:
                 user_data = json.loads(data)
-                choice = user_data.get("choice", "")
-                turn_id = user_data.get("turn_id") 
-                
-                if session.game_concluded: # Double check before processing
-                    print(f"[Session {session_id}] Game concluded. Ignoring choice: {choice}")
-                    continue # Ignore choices if game ended during this loop iteration
-                
-                if choice and turn_id is not None:
-                    await session.process_user_choice(choice, turn_id, websocket)
-                elif choice:
-                    print(f"[Session {session_id}] Received choice '{choice}' without a turn_id. Ignoring.")
             except json.JSONDecodeError:
+                print(f"[App Session {session_id}] Invalid JSON received from client. Message: {data}")
                 if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(json.dumps({"type": "error", "content": "Invalid input format."}))
-            except WebSocketDisconnect: 
-                print(f"WebSocket disconnected during receive for session: {session_id}")
-                raise # Re-raise to be caught by the outer try/except WebSocketDisconnect
-    
+                    await websocket.send_text(json.dumps({"type": "error", "content": "Invalid JSON input from client."}))
+                continue # Wait for next message
+
+            choice = user_data.get("choice") 
+            turn_id_from_client = user_data.get("turn_id")
+            
+            if session.game_concluded: 
+                print(f"[App Session {session_id}] Game concluded (checked after receive). Ignoring choice: {choice}")
+                if websocket.client_state == WebSocketState.CONNECTED:
+                     await websocket.send_text(json.dumps({"type": "game_end", "message": "The story has concluded."}))
+                break 
+            
+            if choice is not None and turn_id_from_client is not None: 
+                print(f"[App Session {session_id}] Processing choice: '{choice}' for new turn_id: {turn_id_from_client}")
+                await session.process_user_choice(choice, turn_id_from_client, websocket)
+                print(f"[App Session {session_id}] process_user_choice completed for turn_id: {turn_id_from_client}")
+            elif choice is not None: 
+                print(f"[App Session {session_id}] Received choice '{choice}' without a turn_id. Ignoring.")
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({"type": "error", "content": "Client choice message missing 'turn_id' from client."}))
+            else: 
+                print(f"[App Session {session_id}] Malformed choice message. Data: {user_data}")
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({"type": "error", "content": "Malformed choice message from client."}))
+
     except WebSocketDisconnect:
-        print(f"WebSocket disconnected for session: {session_id} (either client closed or network issue).")
+        print(f"[App Session {session_id}] WebSocket disconnected by client or network issue.")
     except Exception as e:
-        print(f"Unexpected error in WebSocket handler for {session_id}: {e}")
+        print(f"[App Session {session_id}] Unexpected error in WebSocket handler for {session_id}: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        if websocket.client_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.send_text(json.dumps({"type": "error", "content": "Unexpected server error. Please check logs."}))
+            except Exception as send_err:
+                print(f"[App Session {session_id}] Failed to send error to client after main exception: {send_err}")
     finally:
-        print(f"[Session {session_id}] WebSocket endpoint finishing. Game concluded: {session.game_concluded}")
+        print(f"[App Session {session_id}] WebSocket endpoint 'finally' block. Game concluded: {session.game_concluded}")
         
-        if session.background_tasks:
-            print(f"[Session {session_id}] Waiting for {len(session.background_tasks)} background tasks...")
-            # Gather with return_exceptions=True to ensure all tasks are awaited even if some fail
+        if hasattr(session, 'background_tasks') and session.background_tasks:
+            print(f"[App Session {session_id}] Waiting for {len(session.background_tasks)} background tasks...")
             results = await asyncio.gather(*list(session.background_tasks), return_exceptions=True)
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    print(f"[Session {session_id}] Background task {i} failed: {result}")
-            print(f"[Session {session_id}] Background tasks finalized.")
+                    print(f"[App Session {session_id}] Background task {i} failed: {result}")
+            print(f"[App Session {session_id}] Background tasks finalized.")
 
         if session.game_concluded and websocket.client_state == WebSocketState.CONNECTED:
             try:
-                print(f"[Session {session_id}] Sending final game_end message from endpoint (connection will remain open).")
+                print(f"[App Session {session_id}] Sending final game_end message from endpoint's finally block (if not already sent).")
                 await websocket.send_text(json.dumps({"type": "game_end", "message": "The story has concluded."}))
             except Exception as e_final_send:
-                print(f"[Session {session_id}] Exception sending final game_end: {e_final_send}")
+                print(f"[App Session {session_id}] Exception sending final game_end from finally: {e_final_send}")
 
-        # Session cleanup from connected_clients still happens
         if session_id in connected_clients:
-            print(f"[Session {session_id}] Cleaning up session object from connected_clients dictionary.")
-            # Active background tasks should have been gathered. If any were added very late and not caught, they might be orphaned.
-            # However, _create_background_task adds them to the set, so gather should catch them.
+            print(f"[App Session {session_id}] Cleaning up RPGSession object from connected_clients.")
             del connected_clients[session_id]
-            print(f"[Session {session_id}] Session object cleaned up.")
+            print(f"[App Session {session_id}] RPGSession object cleaned up.")
         
-        # MODIFICATION: Do not explicitly close the WebSocket from the server side.
-        # The connection will remain open until the client closes it or a network error occurs.
         if websocket.client_state != WebSocketState.DISCONNECTED:
-            print(f"[Session {session_id}] Server will NOT explicitly close WebSocket. Current state: {websocket.client_state}")
-            # try:
-            #     await websocket.close() # REMOVED THIS LINE
-            #     print(f"[Session {session_id}] WebSocket closed from finally block.")
-            # except Exception as e_close:
-            #     print(f"[Session {session_id}] Exception closing WebSocket: {e_close}")
+            print(f"[App Session {session_id}] Server is NOT explicitly closing WebSocket per design. Current state: {websocket.client_state}")
         else:
-            print(f"[Session {session_id}] WebSocket already disconnected by client or network issue.")
+            print(f"[App Session {session_id}] WebSocket was already disconnected.")
 
-        print(f"[Session {session_id}] WebSocket connection handler fully exiting (connection may remain open if client keeps it).")
+        print(f"[App Session {session_id}] WebSocket connection handler ({websocket_endpoint.__name__}) fully exiting.")
+
+@app.get("/debug/image-generation")
+def get_image_generation_debug():
+    status = config.get_debug_image_repeat_status()
+    print(f"[App Get] /debug/image-generation returning: {status}")
+    return {"debug_image_repeat": status}
+
+@app.post("/debug/image-generation")
+async def set_image_generation_debug(request: Request):
+    data = await request.json()
+    value = data.get("debug_image_repeat")
+    if isinstance(value, bool):
+        config.set_debug_image_repeat(value)
+        status_after_set = config.get_debug_image_repeat_status()
+        print(f"[App Post] /debug/image-generation - state set to: {status_after_set}")
+        return {"debug_image_repeat": status_after_set}
+    print(f"[App Post] /debug/image-generation - error: Missing or invalid value: {value}")
+    return {"error": "Missing or invalid 'debug_image_repeat' (must be boolean)"}, 400
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

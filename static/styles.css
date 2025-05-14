@@ -10,6 +10,7 @@
     --border-color: #33334d;
     --disabled-color: #555;
     --disabled-text-color: #999;
+    --objectives-panel-bg: rgba(20, 20, 40, 0.85);
 }
 
 * {
@@ -22,110 +23,296 @@ body {
     font-family: 'Press Start 2P', monospace;
     background-color: var(--bg-color);
     color: var(--text-color);
+    font-size: 12px; /* ADDED: Base font size for the document */
     line-height: 1.6;
     padding: 10px;
-    overflow-y: auto; /* ADDED: Ensure body can scroll vertically */
+    overflow-y: hidden; /* Prevent body scroll, internal areas will scroll */
+    height: 100vh; /* Full viewport height */
+    display: flex; /* For centering and controlling main layout children */
+    flex-direction: column; /* Stack main layout and spotify player */
 }
 
-.game-container {
+.main-layout-container {
+    display: flex;
+    flex-direction: row; /* Story content and objectives side-by-side */
     width: 100%;
-    max-width: none;
-    margin: 0 auto;
-    text-align: center;
+    /* Ensure this height is calculated correctly based on what's outside it (e.g. Spotify) */
+    height: calc(100vh - 125px); /* 100vh - spotify_height - body_padding */
+    flex-grow: 1; /* Allow this container to grow to fill space */
+}
+
+.game-content-area {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 20px); /* CHANGED: from height to min-height */
-    /* overflow: hidden; Ensure this is not present if vertical scroll is desired */
+    flex-grow: 1; /* MODIFIED: Takes up remaining space */
+    /* width: 70%; /* Example, adjust as needed */
+    overflow: hidden; /* Prevent its own scrollbars, children will scroll */
+    height: 100%; /* Full height of parent */
+    /* border: 1px solid var(--border-color); /* REMOVED border */
+    /* background-color: rgba(0,0,0,0.1); /* REMOVED background-color */
 }
 
-h1 {
-    margin-bottom: 15px;
-    font-size: 1.5em; /* Adjust size */
+.game-content-area h1 {
+    margin-bottom: 10px; /* Adjusted margin */
+    font-size: 1.2em; /* This will now be 1.2 * 12px = 14.4px */
     color: var(--primary-color);
     text-shadow: 2px 2px 0px #000;
-    flex-shrink: 0; /* Prevent shrinking */
+    flex-shrink: 0;
+    padding-left: 15px; /* Add padding here if h1 is inside game-content-area but outside history-log */
+    padding-right: 15px;
+    padding-top: 15px; /* Add padding here if h1 is inside game-content-area but outside history-log */
 }
 
-/* History Log Container */
 .history-log {
     width: 100%;
     display: flex;
     flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden; /* To prevent double scrollbars, main page scrolls */
+    overflow-x: auto;   /* Horizontal scroll for turns */
+    overflow-y: hidden; /* Individual turns will handle their vertical scroll if needed */
     flex-wrap: nowrap;
-    padding: 10px;
+    /* padding: 10px; /* Padding can be on game-content-area or here */
     margin-bottom: 10px;
-    flex-grow: 1;
-    align-items: flex-start; /* CHANGED: from baseline */
+    flex-grow: 1; /* Allows history log to take available vertical space */
+    align-items: stretch; /* Stretch turn containers vertically */
+    border: 1px solid var(--border-color); /* Can be removed if game-content-area has border */
+    background-color: rgba(0,0,0,0.55); /* Made EVEN DARKER */
+    padding: 15px; /* ADDED padding here */
 }
 
-/* Individual Turn Container */
 .turn-container {
     display: flex;
     flex-direction: column;
-    width: 90%;            /* Wider on mobile */
-    min-width: 320px;       /* Increased minimum width */
+    min-width: 340px; 
+    max-width: 480px; 
     flex-shrink: 0;
-    gap: 15px;
+    gap: 10px;
     padding: 15px;
     margin-right: 15px;
     border: 2px solid var(--border-color);
     border-radius: 8px;
-    background-color: rgba(20, 20, 40, 0.7);
+    background-color: var(--objectives-panel-bg); 
+    overflow-y: auto; /* This enables vertical scroll for the turn container */
+    height: 100%; 
+}
+
+.objectives-panel {
+    width: 256px; /* ADDED: Minimum width */
+    min-height: 512px;
+    background-color: var(--objectives-panel-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px; /* Keep this padding */
+    margin-left: 15px;
+    margin-top: 55px;
+    margin-bottom: 30px;
+    position: relative; /* ADDED: For absolute positioning of children */
+    display: flex; 
+    flex-direction: column; 
+}
+
+.objectives-panel h2 {
+    font-size: 1.0em; /* REDUCED from 1.2em */
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+#objectives-list {
+    list-style: none;
+    padding: 0; /* Keep padding 0 */
+    margin: 0; /* Keep margin 0 */
+    flex-grow: 1; /* ADDED: To make it take available space */
+    overflow-y: auto; /* ADDED: To make only the list scrollable if content overflows */
+    padding-bottom: 10px; /* Reduced padding a bit, button will add its own margin */
+}
+
+#objectives-list li {
+    font-size: 0.8em; 
+    margin-bottom: 6px; 
+    padding: 5px 8px; /* Adjusted padding for li */
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    display: flex; /* For the ::before pseudo-element and the text container */
+    align-items: flex-start; /* Align items to the top if text wraps to multiple lines */
+    gap: 8px;
+}
+
+.objective-text-container {
+    display: inline; /* Allow text parts to flow on the same line */
+    /* flex-grow: 1; /* If needed to push against a fixed-width pseudo-element */
+}
+
+.objective-count {
+    /* Styles for the (1/3) count, if any specific needed */
+    /* e.g., color: var(--secondary-color); */
+    margin-left: 4px; /* Space before the count */
+}
+
+#objectives-list li .partial-progress {
+    font-size: 0.9em; 
+    color: #aaa;
+    /* display: block; /* Changed: Now part of the inline flow or can be span */
+    display: inline; /* Keep it inline */
+    margin-left: 4px; /* Space before partial progress text */
+}
+
+.status-container {
+    flex-shrink: 0;
+    padding-top: 10px;
+    /* margin-bottom: 10px; /* Removed to allow button to be part of this block */
+    text-align: center;
+    display: flex; /* To arrange status and button */
+    flex-direction: column; /* Stack them */
+    align-items: center; /* Center button */
+    gap: 10px; /* Space between status and button */
+}
+
+.action-button {
+    background-color: var(--secondary-color);
+    color: var(--text-color);
+    border: none;
+    padding: 8px 15px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.8em; 
+    cursor: pointer;
+    border: 2px solid var(--border-color);
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    margin-top: 15px; /* ADDED: Space above the button */
+    margin-bottom: 10px; /* ADDED: Space below the button before connection status */
+    width: calc(100% - 30px); /* Make it take panel width minus padding */
+    align-self: center; /* Center button within the panel */
+}
+
+.action-button:hover {
+    background-color: var(--primary-color);
+}
+
+#embed-iframe { /* Spotify player */
+    border-top: 3px solid var(--border-color);
+    padding-top: 15px;
+    width: 100%; 
+    max-width: 600px; /* Max width for spotify */
+    margin: 0 auto; /* Center it */
+    flex-shrink: 0; 
+    height: 105px; /* Fixed height for player */
+}
+
+.debug-menu {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background-color: rgba(26, 26, 46, 0.95);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    color: var(--text-color);
+    font-family: 'Press Start 2P', monospace;
+    z-index: 1000;
+    display: none;
+    min-width: 500px;
+    min-height: 300px;
+    max-width: 900px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    margin-bottom: 15px; /* Remove extra spotify margin if debug menu is above it */
+}
+
+.debug-menu h3 {
+    font-size: 1.15em; /* CHANGED from 14px */
+    margin-bottom: 10px;
+    color: var(--primary-color);
+}
+
+.debug-menu h4 {
+    font-size: 1em; /* CHANGED from 12px */
+    margin-bottom: 8px;
+    color: var(--secondary-color);
+}
+
+.debug-section {
+    margin-bottom: 15px;
+}
+
+#objectives-list li.completed {
+    background-color: rgba(77, 255, 77, 0.1);
+    border-color: #4dff4d;
+}
+
+#objectives-list li.completed::before {
+    content: "✓";
+    color: #4dff4d;
+}
+
+#objectives-list li.pending::before {
+    content: "○";
+    color: var(--accent-color);
 }
 
 .turn-image-container {
-    position: relative; /* enable overlay positioning */
-    width: 100%; /* Image container takes full width */
-    max-width: 1024px; /* Optional: Max width for image on mobile */
-    margin: 0 auto; /* Center image container */
-    min-height: 50px; /* Prevent collapsing before image loads */
+    position: relative; 
+    width: 320px;
+    height: 320px;
+    margin: 0 auto; /* Center if .turn-container is wider */
+    background-color: #000; 
+    display: flex; 
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--border-color);
+    flex-shrink: 0; 
+    overflow: hidden; /* Ensure image doesn't break out of fixed size */
 }
 
 .turn-image {
     display: block;
-    width: 100%;
-    height: auto;
-    border: 3px solid var(--border-color);
+    /* Width and height will be constrained by the parent container */
+    max-width: 100%;  /* Max width is 100% of container (512px) */
+    max-height: 100%; /* Max height is 100% of container (512px) */
+    width: auto;      /* Maintain aspect ratio if original is not square */
+    height: auto;     /* Maintain aspect ratio if original is not square */
+    object-fit: contain; /* Ensures the whole image fits, letterboxing if not square */
     image-rendering: pixelated;
-    background-color: #000;
     position: relative;
     z-index: 1;
 }
 
 .turn-content {
     text-align: left;
-    width: 100%; /* Content takes full width */
+    width: 320px; 
+    flex-grow: 1; /* Allow content to take remaining space and push for scroll */
+    overflow-y: auto; /* Fallback scroll for content itself, if needed */
+    display: flex; /* Added to manage children better */
+    flex-direction: column; /* Stack narration and choices */
 }
 
 .turn-narration {
-    font-size: 13px;
+    width: 100%;
+    font-size: 0.8em; /* CHANGED from 10px (now 9.6px) */
     letter-spacing: 0.5px;
-    line-height: 1.7;
-    margin-bottom: 15px;
-    white-space: pre-wrap; /* ADDED: Helps with text layout for vertical growth */
-    overflow-wrap: break-word; /* ADDED: Helps with text layout */
+    line-height: 1.6; /* Adjusted line height for smaller font */
+    margin-bottom: 12px; /* Adjusted margin */
+    white-space: pre-wrap; 
+    overflow-wrap: break-word; 
 }
 
 .turn-choices {
     display: flex;
     flex-direction: column;
-    gap: 10px; /* Increased gap between buttons */
+    gap: 10px; 
+    flex-shrink: 0; /* Prevent choices from shrinking excessively */
 }
 
 .choice-button {
     background-color: var(--primary-color);
     color: var(--text-color);
     border: none;
-    padding: 10px 15px; /* Slightly larger padding */
+    padding: 7px 10px; /* Adjusted padding for smaller font */
     font-family: 'Press Start 2P', monospace;
-    font-size: 11px;
+    font-size: 0.7em; /* CHANGED from 9px (now 8.4px) */
     cursor: pointer;
     border: 2px solid var(--border-color);
     transition: background-color 0.2s;
     text-align: left;
-    width: 100%; /* Force buttons to take full width */
+    width: 100%; 
 }
 
 .choice-button:hover:not(:disabled) {
@@ -150,17 +337,21 @@ h1 {
     border-color: var(--accent-color);
 }
 
-/* Status Container */
-.status-container {
-     flex-shrink: 0;
-     /* margin-top: auto; Removed to allow Spotify to be pushed down by history log naturally */
-     padding-top: 10px;
-     margin-bottom: 15px; /* ADDED: Space before Spotify */
-}
-
 .connection-status {
-    font-size: 12px;
+    font-size: 1em; /* CHANGED from 12px (now 12px) */
     color: var(--accent-color);
+    text-align: center;
+    /* margin-top: 10px; */ /* REMOVED */
+    position: static; /* CHANGED: No longer needs to be absolute if it's the last flex item */
+    /* bottom: 15px; REMOVED */
+    /* left: 15px; REMOVED */
+    /* right: 15px; REMOVED */
+    /* background-color: var(--objectives-panel-bg); REMOVED - no longer needed to cover scrolling list */
+    /* padding-top: 5px; REMOVED */
+    /* padding-bottom: 5px; REMOVED */
+    width: 100%; /* Take full width for text-align: center to work well */
+    margin-top: auto; /* Push to bottom of flex container if objectives list is short */
+    padding-bottom: 0; /* Ensure no extra padding at the very bottom of panel */
 }
 
 /* Blinking Cursor */
@@ -172,8 +363,8 @@ h1 {
 
 .cursor {
     display: inline-block;
-    width: 8px;
-    height: 13px;
+    width: 0.7em; /* Adjusted width for smaller font */
+    height: 1.1em; /* CHANGED from 13px */
     background-color: var(--text-color);
     animation: blink 1s infinite;
     margin-left: 1px;
@@ -181,33 +372,40 @@ h1 {
 }
 
 /* Desktop Adjustments */
-@media (min-width: 768px) { /* Adjust breakpoint */
+@media (min-width: 768px) {
     .turn-container {
-        max-width: 600px; 
-        padding: 20px;
-        margin-right: 20px;
+        max-width: 500px; 
     }
-
-     .turn-image-container {
-         max-width: 1024px; /* Allow larger images */
-     }
-
+    /* .objectives-panel {
+        width: 350px; 
+    } */ /* REMOVED to maintain 50/50 split on desktop */
     .turn-narration {
-        font-size: 14px;
+        font-size: 0.8em; /* CHANGED from 12px (now 12px) */
+        line-height: 1.7;
     }
-    
     .choice-button {
-        font-size: 12px;
-        padding: 10px 15px;
+        font-size: 0.75em; /* CHANGED from 10px (now 9px) */
+        padding: 8px 12px; /* Adjusted padding */
     }
-
-     .connection-status {
-        font-size: 14px;
+    .connection-status {
+        font-size: 1.1em; /* CHANGED from 14px (now 13.2px) */
     }
-
-     .cursor {
-        width: 10px;
-        height: 14px;
+    .cursor {
+        width: 0.7em; /* Adjusted width */
+        height: 1.1em; /* CHANGED from 14px (Adjusted to match typical desktop narration font) */
+    }
+    #objectives-list li {
+        font-size: 0.8em; /* Base size is 12px, so this is 9.6px. User wanted smaller. */
+        padding: 6px 10px; /* Adjusted padding for desktop */
+    }
+    #objectives-list li .objective-text-container {
+        /* No specific style change needed for desktop, inherits from base */
+    }
+    #objectives-list li .objective-count {
+        /* No specific style change needed for desktop */
+    }
+    #objectives-list li .partial-progress {
+        font-size: 0.9em; /* Relative to its parent li's text */
     }
 } 
 
@@ -285,27 +483,6 @@ h1 {
     line-height: 1.4;
 }
 
-/* Spotify Player Container Styling */
-.spotify-player-container {
-    margin-bottom: 15px;
-    width: 100%;
-    max-width: 500px; /* Optional: constrain player width */
-    margin-left: auto;
-    margin-right: auto;
-}
-
-/* Spotify IFrame API container */
-#embed-iframe {
-    border-top: 3px solid var(--border-color);
-    padding-top: 15px;
-    margin-top: auto; /* Push to bottom of flex container if game-container is flex */
-    width: 100%; 
-    max-width: 500px; /* Consistent max-width */
-    margin-left: auto;
-    margin-right: auto;
-    flex-shrink: 0; /* Prevent it from shrinking */
-}
-
 /* Game End Message Styling */
 .game-end-message {
     color: var(--accent-color); /* Red */
@@ -332,19 +509,19 @@ h1 {
     display: none;
     min-width: 500px;
     min-height: 300px;
-    max-width: 400px;
+    max-width: 900px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    margin-bottom: 120px; /* Added margin to account for Spotify player */
+    margin-bottom: 15px; /* Remove extra spotify margin if debug menu is above it */
 }
 
 .debug-menu h3 {
-    font-size: 14px;
+    font-size: 1.15em; /* CHANGED from 14px */
     margin-bottom: 10px;
     color: var(--primary-color);
 }
 
 .debug-menu h4 {
-    font-size: 12px;
+    font-size: 1em; /* CHANGED from 12px */
     margin-bottom: 8px;
     color: var(--secondary-color);
 }
@@ -357,17 +534,6 @@ h1 {
     list-style: none;
     padding: 0;
     margin: 0;
-}
-
-#objectives-list li {
-    font-size: 11px;
-    margin-bottom: 8px;
-    padding: 5px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
 }
 
 #objectives-list li.completed {
@@ -383,4 +549,14 @@ h1 {
 #objectives-list li.pending::before {
     content: "○";
     color: var(--accent-color);
+}
+
+/* ADDED: Styling for the new "Connected" status in objectives panel */
+/*
+.objectives-connection-status {
+    text-align: center;
+    margin-bottom: 10px;
+    color: var(--primary-color);
+    font-size: 0.9em;
 } 
+*/ 

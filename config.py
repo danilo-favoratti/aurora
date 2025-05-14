@@ -44,7 +44,7 @@ DETAILED_CHARACTER_DESCRIPTIONS = {
 }
 
 # Game Settings
-MAX_GAME_TURNS = 50
+MAX_GAME_TURNS = 30
 
 # Initial Game State (loaded from .env, with fallbacks)
 INTRO_PROMPT = os.getenv(
@@ -59,4 +59,16 @@ INITIAL_IMAGE_PROMPT = os.getenv(
     "INITIAL_IMAGE_PROMPT",
     "Uma garotinha de 1 ano com chuquinha na cabeça, loira dos olhos claros e cara alegre"
 )
-USE_PLACEHOLDER_INITIAL_IMAGE = os.getenv("USE_PLACEHOLDER_INITIAL_IMAGE", "false").lower() == "true" 
+USE_PLACEHOLDER_INITIAL_IMAGE = os.getenv("USE_PLACEHOLDER_INITIAL_IMAGE", "false").lower() == "true"
+
+# Debug flag to repeat the first image instead of generating new ones
+DEBUG_IMAGE_REPEAT = False
+
+def set_debug_image_repeat(value: bool):
+    global DEBUG_IMAGE_REPEAT
+    DEBUG_IMAGE_REPEAT = value
+    print(f"[Config] DEBUG_IMAGE_REPEAT set to: {DEBUG_IMAGE_REPEAT}")
+
+def get_debug_image_repeat_status() -> bool:
+    # print(f"[Config] get_debug_image_repeat_status() returning: {DEBUG_IMAGE_REPEAT}")
+    return DEBUG_IMAGE_REPEAT 
