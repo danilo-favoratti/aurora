@@ -8,6 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const debugImageRepeatStatus = document.getElementById('debug-image-repeat-status');
     const savePdfButton = document.getElementById('save-pdf-button');
 
+    // New Top Menu elements
+    const topMenuContainer = document.getElementById('top-menu-container');
+    const topMenuToggleButton = document.getElementById('top-menu-toggle-button');
+
     // Global turn counter for unique IDs
     let turnIdCounter = 0;
 
@@ -34,6 +38,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Debug menu state
     let isDebugMenuVisible = false;
 
+    // Check initial screen width to set menu state - REMOVED as menu now starts closed by default
+    /*
+    if (topMenuContainer && window.innerWidth < 768) {
+        topMenuContainer.classList.remove('open');
+    }
+    */
+
     // Toggle debug menu with F8
     document.addEventListener('keydown', (e) => {
         if (e.key === 'F8') {
@@ -42,46 +53,65 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Toggle new top menu
+    if (topMenuToggleButton && topMenuContainer) {
+        topMenuToggleButton.addEventListener('click', () => {
+            topMenuContainer.classList.toggle('open');
+            // Adjust main layout margin if menu is permanently reserving space when open
+            // For now, CSS handles visibility and main layout has a fixed margin-top
+        });
+    }
+
     // Update objectives list
     function updateObjectivesList(objectives) {
         objectivesList.innerHTML = '';
         if (!objectives || objectives.length === 0) {
             const li = document.createElement('li');
-            li.textContent = "No objectives yet.";
+            if (turnIdCounter === 0) {
+                li.textContent = "Please select a theme to begin your journey.";
+            } else {
+                li.textContent = "No active objectives.";
+            }
             objectivesList.appendChild(li);
-            return;
+        } else {
+            objectives.forEach(obj => {
+                const li = document.createElement('li');
+                li.className = obj.finished ? 'completed' : 'pending';
+
+                const textContainer = document.createElement('span');
+                textContainer.className = 'objective-text-container';
+
+                let mainObjectiveText = obj.objective;
+                textContainer.appendChild(document.createTextNode(mainObjectiveText));
+
+                if (obj.target_count && obj.target_count > 0 && !obj.partially_complete) {
+                    const current = obj.current_count || 0;
+                    const countSpan = document.createElement('span');
+                    countSpan.className = 'objective-count';
+                    countSpan.textContent = ` (${current}/${obj.target_count})`;
+                    textContainer.appendChild(countSpan);
+                }
+
+                if (obj.partially_complete && !obj.finished) {
+                    const partialSpan = document.createElement('span');
+                    partialSpan.className = 'partial-progress';
+                    let separator = textContainer.childNodes.length > 1 ? " " : "";
+                    partialSpan.textContent = `${separator}- ${obj.partially_complete}`;
+                    textContainer.appendChild(partialSpan);
+                }
+                
+                li.appendChild(textContainer);
+                objectivesList.appendChild(li);
+            });
         }
-        objectives.forEach(obj => {
-            const li = document.createElement('li');
-            li.className = obj.finished ? 'completed' : 'pending';
 
-            const textContainer = document.createElement('span');
-            textContainer.className = 'objective-text-container';
-
-            let mainObjectiveText = obj.objective;
-            textContainer.appendChild(document.createTextNode(mainObjectiveText));
-
-            // Only add JS-generated count if there's no partially_complete string (which might contain its own count)
-            if (obj.target_count && obj.target_count > 0 && !obj.partially_complete) {
-                const current = obj.current_count || 0;
-                const countSpan = document.createElement('span');
-                countSpan.className = 'objective-count';
-                countSpan.textContent = ` (${current}/${obj.target_count})`;
-                textContainer.appendChild(countSpan);
-            }
-
-            if (obj.partially_complete && !obj.finished) {
-                 const partialSpan = document.createElement('span');
-                 partialSpan.className = 'partial-progress';
-                 // Ensure there's a space if mainObjectiveText and countSpan were already added
-                 let separator = textContainer.childNodes.length > 1 ? " " : ""; 
-                 partialSpan.textContent = `${separator}- ${obj.partially_complete}`;
-                 textContainer.appendChild(partialSpan);
-            }
-            
-            li.appendChild(textContainer);
-            objectivesList.appendChild(li);
-        });
+        // Blink menu button if objectives updated and menu is closed
+        if (topMenuToggleButton && topMenuContainer && !topMenuContainer.classList.contains('open')) {
+            topMenuToggleButton.classList.add('blink-attention');
+            setTimeout(() => {
+                topMenuToggleButton.classList.remove('blink-attention');
+            }, 600); // Duration should match CSS animation (e.g., 0.6s)
+        }
     }
 
     // Helper: format markdown bold and insert double line breaks after sentences
@@ -587,23 +617,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const pageWidth = fullPageWidth - (2 * pageMargin); // Overall content width
             let currentY = pageMargin;
             
-            const imageMaxWidth = pageWidth * 0.95; 
+            // Define a common target width for image and text content, image will dictate actual
+            const commonContentTargetWidth = pageWidth * 0.8; // Aim for 80% of usable page width for content
             const imageMaxHeight = fullPageHeight * 0.45; 
-            
-            // Text block specific constants
-            const textBlockMaxWidth = pageWidth * 0.70; // Text blocks will take 70% of content width, increasing side margins
-            const textBlockXOffset = pageMargin + (pageWidth - textBlockMaxWidth) / 2; // X-offset to center the text block
             
             const narrationFontSize = 8; 
             const choiceFontSize = 7;   
-            const lineSpacing = 8; 
-            const textBlockInternalTopPadding = narrationFontSize * 1.4; 
-            const textBlockSidePadding = 6; // Padding INSIDE the border for text
-            const textBlockBottomPadding = 6;
-            const borderColor = [77, 77, 255]; 
+            // Increased lineSpacing for more space between text blocks/items
+            const lineSpacing = 12; // General spacing after major blocks
+            const choiceItemSpacing = lineSpacing * 0.7; // Spacing between choice items, slightly more
+
+            // Paddings (these define space INSIDE the text border)
+            const originalTextBlockInternalTopPadding = narrationFontSize * 1.4; 
+            const originalTextBlockSidePadding = 6; 
+            const originalTextBlockBottomPadding = 6;
+
+            // User requested increase by 10px side, 10px top, 10px bottom for text border area
+            const textBlockInternalTopPadding = originalTextBlockInternalTopPadding + 10;
+            const textBlockSidePadding = originalTextBlockSidePadding + 10; 
+            const textBlockBottomPadding = originalTextBlockBottomPadding + 10;
+
+            const imageBorderColor = [77, 77, 255]; // Purple for image border
+            const textBorderColorLightPurple = [170, 170, 255]; // Very light purple for text border
             const defaultTextColor = [230, 230, 230];
             const selectedChoiceColor = [255, 255, 0]; 
-            const textBorderThickness = 2; // Reset to 2, as the request was for margin, not border thickness
+            const textBorderThickness = 2;
+            const imageFrameThickness = 2; // How much the image frame extends beyond the image
 
             // Font setup (same as before)
             const fontName = "PressStart2P";
@@ -650,105 +689,140 @@ document.addEventListener('DOMContentLoaded', () => {
                 doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
                 if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
                 
+                let actualContentWidthForTurn = commonContentTargetWidth; // Default if no image
+                let contentXOffsetForTurn = pageMargin + (pageWidth - actualContentWidthForTurn) / 2; // Center this default width
+
                 const imgElement = turn.querySelector('.turn-image');
+                let imageAddedThisPage = false;
+
                 if (imgElement && imgElement.src && imgElement.src !== PLACEHOLDER_IMG_SRC) {
                     try {
-                        if (!imgElement.complete || imgElement.naturalWidth === 0) {
+                        if (!imgElement.complete || imgElement.naturalWidth === 0) { // Ensure image is loaded
                             await new Promise((resolve, reject) => { 
-                                imgElement.onload = resolve; imgElement.onerror = reject; 
+                                imgElement.onload = resolve; 
+                                imgElement.onerror = reject; 
                                 if (imgElement.complete && imgElement.naturalWidth !== 0) resolve();
                             });
                         }
                         const imgData = imgElement.src;
                         const originalWidth = imgElement.naturalWidth || 512;
                         const originalHeight = imgElement.naturalHeight || 512;
+                        
                         let imgPdfWidth = originalWidth;
                         let imgPdfHeight = originalHeight;
-                        if (imgPdfWidth > imageMaxWidth) {
-                            imgPdfWidth = imageMaxWidth;
-                            imgPdfHeight = (imgPdfWidth / originalWidth) * originalHeight;
+
+                        // Scale image to fit commonContentTargetWidth while maintaining aspect ratio
+                        if (imgPdfWidth > commonContentTargetWidth) {
+                            imgPdfHeight = (commonContentTargetWidth / imgPdfWidth) * imgPdfHeight;
+                            imgPdfWidth = commonContentTargetWidth;
                         }
+                        // Further scale if height exceeds imageMaxHeight
                         if (imgPdfHeight > imageMaxHeight) {
+                            imgPdfWidth = (imageMaxHeight / imgPdfHeight) * imgPdfWidth;
                             imgPdfHeight = imageMaxHeight;
-                            imgPdfWidth = (imgPdfHeight / originalHeight) * originalWidth;
                         }
-                        const imgX = pageMargin + (pageWidth - imgPdfWidth) / 2;
-                        doc.setFillColor(0, 0, 0);
-                        doc.rect(imgX - 2, currentY - 2, imgPdfWidth + 4, imgPdfHeight + 4, 'F');
-                        doc.addImage(imgData, 'PNG', imgX, currentY, imgPdfWidth, imgPdfHeight);
-                        currentY += imgPdfHeight + lineSpacing * 2;
-                    } catch (e) { doc.text(`[Image N/A]`, pageMargin, currentY); currentY += narrationFontSize + lineSpacing; }
-                } else { doc.text(`[No image]`, pageMargin, currentY); currentY += narrationFontSize + lineSpacing; }
+                        
+                        actualContentWidthForTurn = imgPdfWidth; // Image dictates the content width for this turn
+                        contentXOffsetForTurn = pageMargin + (pageWidth - actualContentWidthForTurn) / 2; // Re-center based on actual image width
+
+                        // Draw image with purple frame
+                        doc.setFillColor(imageBorderColor[0], imageBorderColor[1], imageBorderColor[2]);
+                        doc.rect(
+                            contentXOffsetForTurn - imageFrameThickness, 
+                            currentY - imageFrameThickness, 
+                            actualContentWidthForTurn + (2 * imageFrameThickness), 
+                            imgPdfHeight + (2 * imageFrameThickness), 
+                            'F'
+                        );
+                        doc.addImage(imgData, 'PNG', contentXOffsetForTurn, currentY, actualContentWidthForTurn, imgPdfHeight);
+                        currentY += imgPdfHeight + (2 * imageFrameThickness) + lineSpacing * 1.5; // Extra space after image
+                        imageAddedThisPage = true;
+                    } catch (e) { 
+                        doc.text(`[Image N/A]`, contentXOffsetForTurn + textBlockSidePadding, currentY + textBlockInternalTopPadding);
+                        currentY += narrationFontSize + lineSpacing; 
+                    }
+                } else { 
+                    // Minimal space if no image, text will use actualContentWidthForTurn (defaulted to commonContentTargetWidth)
+                    // doc.text(`[No image]`, contentXOffsetForTurn + textBlockSidePadding, currentY + textBlockInternalTopPadding); 
+                    // currentY += narrationFontSize + lineSpacing; 
+                }
+                
+                doc.setLineHeightFactor(1.5); // Increase line height for all text below
 
                 const narrationElement = turn.querySelector('.turn-narration');
+                const choicesElement = turn.querySelector('.turn-choices');
+                let combinedTextHeight = 0;
+                let splitNarration = [];
+                let narrationBlockHeight = 0;
+                let allChoicesText = [];
+                let actualChoicesContentHeight = 0;
+
                 if (narrationElement && narrationElement.textContent.trim() !== "") {
                     doc.setFontSize(narrationFontSize);
-                    const narrationText = narrationElement.innerHTML.replace(/<br\s*\/?>/gi, '\n').replace(/<span class="md-bold">(.+?)<\/span>/gi, '$1').replace(/<[^>]+>/g, '');
-                    const splitNarration = doc.splitTextToSize(narrationText, textBlockMaxWidth - (textBlockSidePadding * 2));
-                    const textHeight = doc.getTextDimensions(splitNarration).h;
-                    const narrationBlockHeight = textHeight + textBlockInternalTopPadding + textBlockBottomPadding;
-
-                    if (currentY + narrationBlockHeight > fullPageHeight - pageMargin) {
-                        doc.addPage(); currentY = pageMargin;
-                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
-                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
-                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal"); 
+                    let narrationText = narrationElement.innerHTML.replace(/<br\s*\/?>/gi, '\n').replace(/<span class="md-bold">(.+?)<\/span>/gi, '$1').replace(/<[^>]+>/g, '');
+                    if (narrationText.trim().toLowerCase() === "escolha seu tema") {
+                        narrationText = "Tema Escolhido";
                     }
-                    doc.setLineWidth(textBorderThickness);
-                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
-                    doc.rect(textBlockXOffset - textBlockSidePadding, currentY - textBlockSidePadding, textBlockMaxWidth, narrationBlockHeight, 'S');
-                    doc.text(splitNarration, textBlockXOffset, currentY + narrationFontSize);
-                    currentY += narrationBlockHeight + lineSpacing * 2;
+                    splitNarration = doc.splitTextToSize(narrationText, actualContentWidthForTurn - (textBlockSidePadding * 2));
+                    narrationBlockHeight = doc.getTextDimensions(splitNarration).h; // Will be larger due to line height factor
+                    if (narrationBlockHeight > 0) combinedTextHeight += narrationBlockHeight;
                 }
 
-                const choicesElement = turn.querySelector('.turn-choices');
-                if (choicesElement && choicesElement.children.length > 0 && choicesElement.children[0].tagName === 'BUTTON') {
+                const hasChoices = choicesElement && choicesElement.children.length > 0 && choicesElement.children[0].tagName === 'BUTTON';
+                if (hasChoices) {
                     doc.setFontSize(choiceFontSize);
-                    const choicesTitle = "Choices:";
-                    const choicesTitleHeight = choiceFontSize * 1.2 + lineSpacing;
-                    if (currentY + choicesTitleHeight > fullPageHeight - pageMargin) {
-                        doc.addPage(); currentY = pageMargin;
-                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
-                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
-                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
-                    }
-                    doc.text(choicesTitle, textBlockXOffset, currentY);
-                    currentY += choicesTitleHeight;
-
-                    let choiceY = currentY; 
-                    let allChoicesText = [];
                     choicesElement.querySelectorAll('.choice-button').forEach(button => {
                         allChoicesText.push({text: `- ${button.textContent}`, selected: button.classList.contains('selected')});
                     });
-                    
-                    const splitChoicesForHeight = doc.splitTextToSize(allChoicesText.map(c => c.text).join('\n'), textBlockMaxWidth - (textBlockSidePadding*2) - 10);
-                    const choicesBlockHeight = doc.getTextDimensions(splitChoicesForHeight).h + textBlockInternalTopPadding + textBlockBottomPadding;
-
-                    if (choiceY + choicesBlockHeight > fullPageHeight - pageMargin) {
-                        doc.addPage(); choiceY = pageMargin; currentY = pageMargin;
-                        doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
-                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
-                        if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal");
+                    const choiceLinesForHeightCalc = doc.splitTextToSize(allChoicesText.map(c => c.text).join('\n'), actualContentWidthForTurn - (textBlockSidePadding*2) - 10);
+                    actualChoicesContentHeight = doc.getTextDimensions(choiceLinesForHeightCalc).h; // Will be larger
+                    if (actualChoicesContentHeight > 0) {
+                        if (combinedTextHeight > 0) combinedTextHeight += lineSpacing; // Space between narration and choices
+                        combinedTextHeight += actualChoicesContentHeight;
                     }
-                    
-                    doc.setLineWidth(textBorderThickness);
-                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
-                    doc.rect(textBlockXOffset - textBlockSidePadding, choiceY - textBlockSidePadding, textBlockMaxWidth, choicesBlockHeight, 'S');
-
-                    let textYForChoice = choiceY + choiceFontSize;
-                    allChoicesText.forEach(choiceObj => {
-                        const choiceLines = doc.splitTextToSize(choiceObj.text, textBlockMaxWidth - (textBlockSidePadding*2) - 10);
-                        if (choiceObj.selected) {
-                            doc.setTextColor(selectedChoiceColor[0], selectedChoiceColor[1], selectedChoiceColor[2]);
-                        }
-                        doc.text(choiceLines, textBlockXOffset + 10, textYForChoice);
-                        if (choiceObj.selected) {
-                            doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
-                        }
-                        textYForChoice += doc.getTextDimensions(choiceLines).h + lineSpacing * 0.5;
-                    });
-                    currentY = choiceY + choicesBlockHeight + lineSpacing;
                 }
+                
+                const totalTextBlockPaddedHeight = combinedTextHeight > 0 ? combinedTextHeight + textBlockInternalTopPadding + textBlockBottomPadding : 0;
+
+                if (combinedTextHeight > 0 && (currentY + totalTextBlockPaddedHeight > fullPageHeight - pageMargin)) {
+                    doc.addPage(); 
+                    currentY = pageMargin;
+                    doc.setFillColor(26, 26, 46); doc.rect(0, 0, fullPageWidth, fullPageHeight, 'F');
+                    doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                    if (fontSuccessfullyLoaded) doc.setFont(fontName, "normal"); 
+                    imageAddedThisPage = false; 
+                }
+
+                if (totalTextBlockPaddedHeight > 0) {
+                    doc.setLineWidth(textBorderThickness);
+                    doc.setDrawColor(textBorderColorLightPurple[0], textBorderColorLightPurple[1], textBorderColorLightPurple[2]);
+                    doc.rect(contentXOffsetForTurn, currentY, actualContentWidthForTurn, totalTextBlockPaddedHeight, 'S');
+
+                    let textY = currentY + textBlockInternalTopPadding; // Text starts after top padding
+
+                    if (splitNarration.length > 0 && narrationBlockHeight > 0) {
+                        doc.setFontSize(narrationFontSize);
+                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                        doc.text(splitNarration, contentXOffsetForTurn + textBlockSidePadding, textY);
+                        textY += narrationBlockHeight + lineSpacing; 
+                    }
+
+                    if (hasChoices && allChoicesText.length > 0 && actualChoicesContentHeight > 0) {
+                        doc.setFontSize(choiceFontSize);
+                        allChoicesText.forEach(choiceObj => {
+                            const choiceLines = doc.splitTextToSize(choiceObj.text, actualContentWidthForTurn - (textBlockSidePadding*2) - 10);
+                            if (choiceObj.selected) {
+                                doc.setTextColor(selectedChoiceColor[0], selectedChoiceColor[1], selectedChoiceColor[2]);
+                            } else {
+                                doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                            }
+                            doc.text(choiceLines, contentXOffsetForTurn + textBlockSidePadding + 10, textY); // Indent choices
+                            textY += doc.getTextDimensions(choiceLines).h + choiceItemSpacing; // Use choiceItemSpacing
+                        });
+                    }
+                    currentY += totalTextBlockPaddedHeight + lineSpacing * 1.5; // Extra space after text block
+                }
+                doc.setLineHeightFactor(1.15); // Reset line height factor to jsPDF default for subsequent turns/safety
             }
             doc.save('AurorasJourney.pdf');
             console.log("[PDF] PDF Saved.");

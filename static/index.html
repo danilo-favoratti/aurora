@@ -8,23 +8,36 @@
     <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 </head>
 <body>
+    <div id="top-menu-container">
+        <span id="top-menu-title">Aurora's Journey</span>
+        <button id="top-menu-toggle-button">☰ Menu</button>
+        <div id="top-menu-content-wrapper">
+            <div class="top-menu-section" id="top-menu-spotify-section">
+                <h4>Spotify</h4>
+                <div id="embed-iframe"></div>
+            </div>
+            <div class="top-menu-section" id="top-menu-objectives-section">
+                <h4>Objectives</h4>
+                <ul id="objectives-list">
+                    <!-- Content will be populated by JS -->
+                </ul>
+            </div>
+            <div class="top-menu-section" id="top-menu-main-controls-section">
+                <h4>Controls</h4>
+                <button id="save-pdf-button" class="action-button">Save to PDF</button>
+                <div id="connection-status" class="connection-status">Connecting...</div>
+            </div>
+        </div>
+    </div>
+
     <div class="main-layout-container">
         <div class="game-content-area">
-            <h1>Aurora's Journey</h1>
             <div id="history-log" class="history-log">
                 <!-- Turns will be added here dynamically -->
             </div>
             <div class="status-container">
                 <!-- Button was here, now moved -->
             </div>
-        </div>
-
-        <div class="objectives-panel">
-            <!-- REMOVED <p id="objectives-connection-status" class="objectives-connection-status">Connected</p> -->
-            <h2>Objectives</h2>
-            <ul id="objectives-list"></ul>
-            <button id="save-pdf-button" class="action-button">Save to PDF</button>
-            <div id="connection-status" class="connection-status">Connecting...</div>
         </div>
     </div>
 
@@ -40,8 +53,6 @@
         </div>
     </div>
 
-    <div id="embed-iframe"></div>
-    
     <script>
     window.onSpotifyIframeApiReady = (IFrameAPI) => {
         const element = document.getElementById('embed-iframe');

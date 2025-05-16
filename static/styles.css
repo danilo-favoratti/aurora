@@ -30,15 +30,188 @@ body {
     height: 100vh; /* Full viewport height */
     display: flex; /* For centering and controlling main layout children */
     flex-direction: column; /* Stack main layout and spotify player */
+    /* ADD TOP PADDING TO ACCOUNT FOR FIXED MENU, if menu is always visible or to reserve space */
+    /* padding-top: 50px; /* Adjust this based on final menu height */
+}
+
+/* Top Menu Styles */
+#top-menu-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background-color: var(--bg-color); /* Darker background for the menu bar itself */
+    border-bottom: 2px solid var(--border-color);
+    z-index: 1001; /* Above debug menu, above game content */
+    padding: 5px 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    display: flex; /* Added for layout of title and button */
+    align-items: center; /* Vertically align title and button */
+    justify-content: space-between; /* Push button to right, title to left */
+}
+
+#top-menu-title {
+    font-size: 1.2em; /* Slightly larger than button */
+    color: var(--primary-color);
+    text-shadow: 2px 2px 0px #000;
+    margin-right: auto; /* Pushes button to the right, if not using space-between */
+    padding-left: 5px; /* Some padding from the edge */
+}
+
+#top-menu-toggle-button {
+    background-color: var(--primary-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.9em;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+#top-menu-toggle-button:hover {
+    background-color: var(--secondary-color);
+}
+
+#top-menu-content-wrapper {
+    display: none; /* Initially hidden */
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: stretch; /* Make sections take full height of this container */
+    background-color: rgba(30, 30, 50, 0.9); /* Slightly lighter than menu bar, but still dark */
+    padding: 15px;
+    /* margin-top: 5px; /* Space between button and content */
+    border-radius: 0 0 8px 8px;
+    border: 1px solid var(--border-color);
+    border-top: none; /* As top border is from container */
+    max-height: calc(100vh - 45px); /* Max height, increased from -60px */
+    overflow-y: auto; /* Scroll if content exceeds max height */
+    gap: 10px; /* Add gap between sections */
+    /* Position this below the button/title bar */
+    position: absolute; /* Take it out of flex flow of container */
+    top: 100%; /* Position below the parent's bottom edge */
+    left: 0;
+    right: 0;
+    width: auto; /* Let padding and parent define effective width */
+    margin-left: 10px; /* Match container padding */
+    margin-right: 10px; /* Match container padding */
+    box-sizing: border-box; /* Ensure padding is included in width calculations */
+}
+
+#top-menu-container.open #top-menu-content-wrapper {
+    display: flex;
+}
+
+.top-menu-section {
+    padding: 10px;
+    /* flex-basis: 30%; /* Distribute space, adjust as needed */
+    /* min-width: 250px; /* Minimum width for each section */
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--primary-color); /* Clear border delimitations */
+    background-color: rgba(20, 20, 35, 0.95); /* Darker than #top-menu-content-wrapper */
+    border-radius: 4px;
+    /* Remove generic flex-basis and min-width, apply them specifically below */
+}
+
+#top-menu-spotify-section {
+    flex-basis: 25%;
+    min-width: 500px; /* Adjusted min-width, consider Spotify embed needs */
+}
+
+#top-menu-objectives-section {
+    flex-basis: 50%;
+    min-width: 300px; /* Adjusted min-width */
+}
+
+#top-menu-main-controls-section {
+    flex-basis: 25%;
+    min-width: 180px; /* Adjusted min-width */
+    align-items: center; /* Center button and status */
+    justify-content: center; /* Center content vertically if needed, or use padding/margins */
+}
+
+.top-menu-section h4 {
+    font-size: 1em;
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+/* Removed .menu-emoji styles as emojis are removed from HTML */
+/* .top-menu-section .menu-emoji {
+    margin-right: 8px;
+} */
+
+/* Adjustments for moved elements inside the top menu */
+#top-menu-spotify-section #embed-iframe {
+    width: 100%;
+    min-width: 280px; /* Ensure Spotify play button doesn't get squished */
+    height: 80px; /* Default height for Spotify embed in this context */
+    border: none;
+    border-radius: 4px;
+}
+
+#top-menu-objectives-section #objectives-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    padding: 5px;
+    border-radius: 4px;
+    background-color: rgba(0,0,0,0.2);
+    flex-grow: 1; /* Allow the list to grow and take available vertical space */
+    height: 0; /* Works with flex-grow: 1 in a column flex container to fill space */
+}
+
+#top-menu-objectives-section #objectives-list li {
+    font-size: 0.8em;
+    margin-bottom: 6px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    display: flex; /* Ensure flex display */
+    align-items: center; /* Vertically center marker with text */
+    gap: 12px; /* Increased gap for more space between marker and text */
+}
+/* Styles for pending/completed objectives in the new menu are inherited if specific enough,
+   or can be re-scoped if they were too tied to the old .objectives-panel */
+
+#top-menu-main-controls-section #save-pdf-button {
+    margin-top: 0; /* Reset margin if any from original context */
+    margin-bottom: 10px; /* Space between button and status */
+    width: auto; /* Allow button to size to content or be styled explicitly */
+    padding: 8px 15px;
+    /* Ensure hover doesn't change height - border was 2px, ensure it stays consistent or isn't added on hover only */
+    border: 2px solid var(--border-color); /* Keep border consistent */
+}
+
+#top-menu-main-controls-section #save-pdf-button:hover {
+    background-color: var(--primary-color); /* From .action-button:hover */
+    /* Explicitly ensure border doesn't change on hover if it was the cause */
+    border-color: var(--primary-color); /* Optional: match border to hover background */
+}
+
+#top-menu-main-controls-section #connection-status {
+    width: 100%; /* Take full width for text-align center */
+    text-align: center; /* Ensure text is centered */
+    margin-top: 0;
+    padding-bottom: 0; /* Reset padding */
+    position: static; /* Reset positioning */
+    background-color: transparent; /* No special background */
+    font-size: 0.9em;
+    align-self: center; /* Center button within the panel */
 }
 
 .main-layout-container {
     display: flex;
     flex-direction: row; /* Story content and objectives side-by-side */
     width: 100%;
-    /* Ensure this height is calculated correctly based on what's outside it (e.g. Spotify) */
     height: calc(100vh - 125px); /* 100vh - spotify_height - body_padding */
     flex-grow: 1; /* Allow this container to grow to fill space */
+    /* ADD MARGIN TOP TO ACCOUNT FOR THE FIXED MENU BAR */
+    margin-top: 20px; /* Adjust based on #top-menu-container's actual height */
 }
 
 .game-content-area {
@@ -50,6 +223,7 @@ body {
     height: 100%; /* Full height of parent */
     /* border: 1px solid var(--border-color); /* REMOVED border */
     /* background-color: rgba(0,0,0,0.1); /* REMOVED background-color */
+    padding-top: 25px; /* Add padding here if h1 is inside game-content-area but outside history-log */
 }
 
 .game-content-area h1 {
@@ -96,46 +270,27 @@ body {
 }
 
 .objectives-panel {
-    width: 256px; /* ADDED: Minimum width */
-    min-height: 512px;
-    background-color: var(--objectives-panel-bg);
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    padding: 15px; /* Keep this padding */
-    margin-left: 15px;
-    margin-top: 55px;
-    margin-bottom: 30px;
-    position: relative; /* ADDED: For absolute positioning of children */
-    display: flex; 
-    flex-direction: column; 
+    /* display: none; /* Hide the old panel if not removed from HTML, or just remove its styles */
+    /* Most styles here are now irrelevant or moved/adapted to .top-menu-section */
+    /* width: 256px; */
+    /* min-height: 512px; */
+    /* background-color: var(--objectives-panel-bg); */
+    /* border: 2px solid var(--border-color); */
+    /* border-radius: 8px; */
+    /* padding: 15px; */
+    /* margin-left: 15px; */
+    /* margin-top: 55px; */
+    /* margin-bottom: 30px; */
+    /* position: relative; */
+    /* display: flex; */
+    /* flex-direction: column; */
 }
 
-.objectives-panel h2 {
-    font-size: 1.0em; /* REDUCED from 1.2em */
-    color: var(--primary-color);
-    margin-bottom: 10px;
-    text-align: center;
-}
+/* .objectives-panel h2 { ... } */ /* Title is now in .top-menu-section h4 */
 
-#objectives-list {
-    list-style: none;
-    padding: 0; /* Keep padding 0 */
-    margin: 0; /* Keep margin 0 */
-    flex-grow: 1; /* ADDED: To make it take available space */
-    overflow-y: auto; /* ADDED: To make only the list scrollable if content overflows */
-    padding-bottom: 10px; /* Reduced padding a bit, button will add its own margin */
-}
-
-#objectives-list li {
-    font-size: 0.8em; 
-    margin-bottom: 6px; 
-    padding: 5px 8px; /* Adjusted padding for li */
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    display: flex; /* For the ::before pseudo-element and the text container */
-    align-items: flex-start; /* Align items to the top if text wraps to multiple lines */
-    gap: 8px;
-}
+/* #objectives-list related styles are now scoped to #top-menu-objectives-section #objectives-list */
+/* #objectives-list { ... } */
+/* #objectives-list li { ... } */
 
 .objective-text-container {
     display: inline; /* Allow text parts to flow on the same line */
@@ -165,8 +320,12 @@ body {
     flex-direction: column; /* Stack them */
     align-items: center; /* Center button */
     gap: 10px; /* Space between status and button */
+    /* NOTE: This container might be empty now as its children (button, status) moved. */
+    /* Consider removing or repurposing .status-container if it's no longer needed. */
 }
 
+/* .action-button styles are general, but #save-pdf-button is now in #top-menu-main-controls-section */
+/* #save-pdf-button specific adjustments are made under #top-menu-main-controls-section */
 .action-button {
     background-color: var(--secondary-color);
     color: var(--text-color);
@@ -186,6 +345,9 @@ body {
 
 .action-button:hover {
     background-color: var(--primary-color);
+    max-width: 600px; /* Max width for spotify */
+    margin: 0 auto; /* Center it */
+    flex-shrink: 0;
 }
 
 #embed-iframe { /* Spotify player */
@@ -246,7 +408,18 @@ body {
 #objectives-list li.pending::before {
     content: "○";
     color: var(--accent-color);
+    /* line-height: 1; /* May help with precise centering if font size differs greatly */
 }
+
+/* ADDED: Styling for the new "Connected" status in objectives panel */
+/*
+.objectives-connection-status {
+    text-align: center;
+    margin-bottom: 10px;
+    color: var(--primary-color);
+    font-size: 0.9em;
+} 
+*/
 
 .turn-image-container {
     position: relative; 
@@ -273,6 +446,7 @@ body {
     image-rendering: pixelated;
     position: relative;
     z-index: 1;
+    /* Ensure image error icon/tooltip is still working relative to this */
 }
 
 .turn-content {
@@ -292,6 +466,7 @@ body {
     margin-bottom: 12px; /* Adjusted margin */
     white-space: pre-wrap; 
     overflow-wrap: break-word; 
+    /* Ensure cursor styles are not affected or are adjusted */
 }
 
 .turn-choices {
@@ -312,7 +487,8 @@ body {
     border: 2px solid var(--border-color);
     transition: background-color 0.2s;
     text-align: left;
-    width: 100%; 
+    width: 100%;
+    /* Ensure these styles are sufficient for buttons in their new context if any were choice-specific */
 }
 
 .choice-button:hover:not(:disabled) {
@@ -337,21 +513,15 @@ body {
     border-color: var(--accent-color);
 }
 
+/* .connection-status is now in #top-menu-main-controls-section, adjusted there */
 .connection-status {
-    font-size: 1em; /* CHANGED from 12px (now 12px) */
-    color: var(--accent-color);
-    text-align: center;
-    /* margin-top: 10px; */ /* REMOVED */
-    position: static; /* CHANGED: No longer needs to be absolute if it's the last flex item */
-    /* bottom: 15px; REMOVED */
-    /* left: 15px; REMOVED */
-    /* right: 15px; REMOVED */
-    /* background-color: var(--objectives-panel-bg); REMOVED - no longer needed to cover scrolling list */
-    /* padding-top: 5px; REMOVED */
-    /* padding-bottom: 5px; REMOVED */
-    width: 100%; /* Take full width for text-align: center to work well */
-    margin-top: auto; /* Push to bottom of flex container if objectives list is short */
-    padding-bottom: 0; /* Ensure no extra padding at the very bottom of panel */
+    /* font-size: 1em; */ /* Styles are now in #top-menu-main-controls-section #connection-status */
+    /* color: var(--accent-color); */
+    /* text-align: center; */
+    /* position: static; */
+    /* width: 100%; */
+    /* margin-top: auto; */
+    /* padding-bottom: 0; */
 }
 
 /* Blinking Cursor */
@@ -374,11 +544,9 @@ body {
 /* Desktop Adjustments */
 @media (min-width: 768px) {
     .turn-container {
-        max-width: 500px; 
+        max-width: 500px;
     }
-    /* .objectives-panel {
-        width: 350px; 
-    } */ /* REMOVED to maintain 50/50 split on desktop */
+    /* Removed .objectives-panel specific media query */
     .turn-narration {
         font-size: 0.8em; /* CHANGED from 12px (now 12px) */
         line-height: 1.7;
@@ -406,6 +574,23 @@ body {
     }
     #objectives-list li .partial-progress {
         font-size: 0.9em; /* Relative to its parent li's text */
+    }
+
+    /* Adjustments for top menu on larger screens */
+    #top-menu-content-wrapper {
+        /* Could allow more items per row or adjust section widths */
+        flex-wrap: nowrap; /* Prevent wrapping if not desired */
+    }
+    .top-menu-section {
+        min-width: 200px; /* Adjust min-width */
+        flex-basis: auto; /* Allow natural sizing or more specific flex-grow/shrink */
+    }
+    #top-menu-spotify-section #embed-iframe {
+        height: 80px; /* Consistent height */
+    }
+    #top-menu-objectives-section #objectives-list {
+        /* max-height: 250px; /* Slightly more height for objectives list */ 
+        /* flex-grow: 1; and height: 0; should handle this dynamically */
     }
 } 
 
@@ -559,4 +744,14 @@ body {
     color: var(--primary-color);
     font-size: 0.9em;
 } 
-*/ 
+*/
+
+/* CSS for menu button blink */
+@keyframes blink-attention-animation {
+    0%, 100% { background-color: var(--primary-color); box-shadow: none; }
+    50% { background-color: var(--accent-color); box-shadow: 0 0 8px var(--accent-color); }
+}
+
+#top-menu-toggle-button.blink-attention {
+    animation: blink-attention-animation 0.3s 2; /* 0.3s per blink, 2 times = 0.6s total */
+} 

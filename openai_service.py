@@ -22,7 +22,7 @@ async def edit_image_with_openai(
             "prompt": prompt,
             "n": 1,
             "size": "1024x1024",
-            "quality": "medium"
+            "quality": "high"
         }
         response = await asyncio.to_thread(client.images.edit, **api_args)
         return response.data[0].b64_json
@@ -54,7 +54,7 @@ async def edit_image_with_multiple_inputs_openai(
             "prompt": prompt,
             "n": 1,
             "size": "1024x1024",
-            "quality": "medium"
+            "quality": "high"
         }
         response = await asyncio.to_thread(client.images.edit, **api_args)
         return response.data[0].b64_json
