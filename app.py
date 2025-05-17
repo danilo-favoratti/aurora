@@ -150,24 +150,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
         print(f"[App Session {session_id}] WebSocket connection handler ({websocket_endpoint.__name__}) fully exiting.")
 
-@app.get("/debug/image-generation")
-def get_image_generation_debug():
-    status = config.get_debug_image_repeat_status()
-    print(f"[App Get] /debug/image-generation returning: {status}")
-    return {"debug_image_repeat": status}
-
-@app.post("/debug/image-generation")
-async def set_image_generation_debug(request: Request):
-    data = await request.json()
-    value = data.get("debug_image_repeat")
-    if isinstance(value, bool):
-        config.set_debug_image_repeat(value)
-        status_after_set = config.get_debug_image_repeat_status()
-        print(f"[App Post] /debug/image-generation - state set to: {status_after_set}")
-        return {"debug_image_repeat": status_after_set}
-    print(f"[App Post] /debug/image-generation - error: Missing or invalid value: {value}")
-    return {"error": "Missing or invalid 'debug_image_repeat' (must be boolean)"}, 400
-
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":

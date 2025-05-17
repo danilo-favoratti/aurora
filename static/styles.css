@@ -360,6 +360,8 @@ body {
     height: 105px; /* Fixed height for player */
 }
 
+/* Removed .debug-menu and related styles */
+/*
 .debug-menu {
     position: fixed;
     bottom: 20px;
@@ -376,17 +378,17 @@ body {
     min-height: 300px;
     max-width: 900px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    margin-bottom: 15px; /* Remove extra spotify margin if debug menu is above it */
+    margin-bottom: 15px; 
 }
 
 .debug-menu h3 {
-    font-size: 1.15em; /* CHANGED from 14px */
+    font-size: 1.15em; 
     margin-bottom: 10px;
     color: var(--primary-color);
 }
 
 .debug-menu h4 {
-    font-size: 1em; /* CHANGED from 12px */
+    font-size: 1em; 
     margin-bottom: 8px;
     color: var(--secondary-color);
 }
@@ -394,6 +396,7 @@ body {
 .debug-section {
     margin-bottom: 15px;
 }
+*/
 
 #objectives-list li.completed {
     background-color: rgba(77, 255, 77, 0.1);
@@ -423,8 +426,8 @@ body {
 
 .turn-image-container {
     position: relative; 
-    width: 320px;
-    height: 320px;
+    width: 360px; /* Changed from 320px */
+    height: 360px; /* Changed from 320px */
     margin: 0 auto; /* Center if .turn-container is wider */
     background-color: #000; 
     display: flex; 
@@ -451,7 +454,7 @@ body {
 
 .turn-content {
     text-align: left;
-    width: 320px; 
+    width: 360px; /* Changed from 320px */
     flex-grow: 1; /* Allow content to take remaining space and push for scroll */
     overflow-y: auto; /* Fallback scroll for content itself, if needed */
     display: flex; /* Added to manage children better */
@@ -488,6 +491,7 @@ body {
     transition: background-color 0.2s;
     text-align: left;
     width: 100%;
+    line-height: 1.5; /* Added line-height for button text */
     /* Ensure these styles are sufficient for buttons in their new context if any were choice-specific */
 }
 
@@ -554,6 +558,7 @@ body {
     .choice-button {
         font-size: 0.75em; /* CHANGED from 10px (now 9px) */
         padding: 8px 12px; /* Adjusted padding */
+        line-height: 1.5; /* Added line-height for button text for larger screens */
     }
     .connection-status {
         font-size: 1.1em; /* CHANGED from 14px (now 13.2px) */
@@ -678,73 +683,6 @@ body {
     font-weight: bold;
     text-shadow: 2px 2px 0px #000; /* Optional: Add a little shadow like h1 */
 }
-
-/* Debug Menu */
-.debug-menu {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    background-color: rgba(26, 26, 46, 0.95);
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    padding: 15px;
-    color: var(--text-color);
-    font-family: 'Press Start 2P', monospace;
-    z-index: 1000;
-    display: none;
-    min-width: 500px;
-    min-height: 300px;
-    max-width: 900px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    margin-bottom: 15px; /* Remove extra spotify margin if debug menu is above it */
-}
-
-.debug-menu h3 {
-    font-size: 1.15em; /* CHANGED from 14px */
-    margin-bottom: 10px;
-    color: var(--primary-color);
-}
-
-.debug-menu h4 {
-    font-size: 1em; /* CHANGED from 12px */
-    margin-bottom: 8px;
-    color: var(--secondary-color);
-}
-
-.debug-section {
-    margin-bottom: 15px;
-}
-
-#objectives-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-#objectives-list li.completed {
-    background-color: rgba(77, 255, 77, 0.1);
-    border-color: #4dff4d;
-}
-
-#objectives-list li.completed::before {
-    content: "✓";
-    color: #4dff4d;
-}
-
-#objectives-list li.pending::before {
-    content: "○";
-    color: var(--accent-color);
-}
-
-/* ADDED: Styling for the new "Connected" status in objectives panel */
-/*
-.objectives-connection-status {
-    text-align: center;
-    margin-bottom: 10px;
-    color: var(--primary-color);
-    font-size: 0.9em;
-} 
-*/
 
 /* CSS for menu button blink */
 @keyframes blink-attention-animation {

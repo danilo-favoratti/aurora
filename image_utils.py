@@ -42,7 +42,7 @@ def process_base64_image(base64_image_str: str) -> tuple[bytes | None, str | Non
         print(f"[Image Utils] Error processing base64 image: {e}")
         return None, None
 
-def get_placeholder_image_data(placeholder_path: str = "images/aurora.png") -> tuple[bytes | None, str | None, str | None]:
+def get_placeholder_image_data(placeholder_path: str = "images/aurora_first_image.png") -> tuple[bytes | None, str | None, str | None]:
     """Loads, processes, and base64 encodes a placeholder image."""
     img_bytes, img_mime = load_image_from_path(placeholder_path)
     if img_bytes and img_mime:

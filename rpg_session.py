@@ -18,7 +18,6 @@ from config import (
     USE_PLACEHOLDER_INITIAL_IMAGE,
     DETAILED_CHARACTER_DESCRIPTIONS,
     IMAGE_STYLE_GUIDE, # Import the new style guide
-    get_debug_image_repeat_status, # Import the getter
 )
 
 # Image utilities import
@@ -80,8 +79,6 @@ class RPGSession:
         self.runner = Runner()
         self.runner.agent = self.storyteller_agent
         self.runner.context = self.game_context
-        
-        self.first_image_b64 = None  # Store the first image's base64 for debug repeat
         
     def _create_background_task(self, coro):
         """Helper to create, store, and manage cleanup of background tasks."""
@@ -183,11 +180,6 @@ class RPGSession:
                 objectives_data = []
                 for obj in self.game_context.objectives: 
                     obj_data = {"id": obj.id, "objective": obj.objective, "finished": obj.finished}
-                    if obj.target_count is not None:
-                        obj_data["target_count"] = obj.target_count
-                        obj_data["current_count"] = obj.current_count
-                    if obj.partially_complete: 
-                        obj_data["partially_complete"] = obj.partially_complete
                     objectives_data.append(obj_data)
                 
                 print(f"[Session {self.session_id}] DEBUG: Sending objectives_data to client (Turn {turn_id}): {objectives_data}")
@@ -272,10 +264,6 @@ class RPGSession:
                 if img_bytes and img_mime and b64_placeholder:
                     self.reference_image_bytes = img_bytes
                     self.reference_image_mime = img_mime
-                    # Store the placeholder as the first image if debug repeat might be used
-                    if self.first_image_b64 is None:
-                        self.first_image_b64 = b64_placeholder 
-                        print(f"[Session {self.session_id}] Stored placeholder as first_image_b64 for debug repeat.")
                     try: await websocket.send_text(json.dumps({"type": "image", "content": b64_placeholder, "turn_id": initial_turn_id_for_theme_selection}))
                     except Exception as e: 
                         error_msg = f"Error sending placeholder: {e}"
@@ -308,10 +296,12 @@ class RPGSession:
         self.messages.append({"role": "assistant", "content": initial_setup_log})
 
     async def generate_image(self, prompt: str, background: str, turn_id: int, websocket: WebSocket, base64_image: str = ""):
+        MAX_RETRIES = 2 # Total 3 attempts (1 initial + 2 retries)
+        image_b64 = None
+        last_exception = None
+
         try:
-            # Prepend common style guide to the specific prompt for this image
             final_prompt = f"{IMAGE_STYLE_GUIDE}\n\nScene details: {prompt}"
-            print(f"[Image Prompt with Style Guide] {final_prompt}")
             if not base64_image: raise ValueError("No base64_image provided to generate_image()")
 
             processed_image_bytes, processed_image_mime = None, None
@@ -320,36 +310,44 @@ class RPGSession:
             else:
                  processed_image_bytes, processed_image_mime = process_base64_image(base64_image)
 
-            if not processed_image_bytes or not processed_image_mime: raise ValueError("Failed to load/process base image.")
+            if not processed_image_bytes or not processed_image_mime: 
+                raise ValueError("Failed to load/process base image for generate_image.")
             
-            # This method generates the INITIAL reference image (e.g. Aurora)
-            # Its output becomes the first self.reference_image_bytes
             self.reference_image_bytes = processed_image_bytes 
             self.reference_image_mime = processed_image_mime
+
+            for attempt in range(MAX_RETRIES + 1):
+                print(f"[S {self.session_id}][GenerateImage] Attempt {attempt + 1}/{MAX_RETRIES + 1} for prompt: '{final_prompt[:50]}...'")
+                try:
+                    image_b64 = await edit_image_with_openai(
+                        image_bytes=self.reference_image_bytes,
+                        image_mime=self.reference_image_mime,
+                        image_filename="reference.png",
+                        prompt=final_prompt,
+                        session_id=self.session_id
+                    )
+                    if image_b64:
+                        print(f"[S {self.session_id}][GenerateImage] Attempt {attempt + 1} successful.")
+                        break # Success
+                    else:
+                        # This case might happen if edit_image_with_openai returns None without an exception (e.g. API empty response)
+                        print(f"[S {self.session_id}][GenerateImage] Attempt {attempt + 1} returned None, will retry if attempts remain.")
+                        last_exception = Exception("OpenAI image editing returned None without explicit exception.") # Store a generic exception
+
+                except Exception as e:
+                    last_exception = e
+                    print(f"[S {self.session_id}][GenerateImage] Attempt {attempt + 1} failed: {e}")
+                
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(1) # Wait 1 second before retrying
             
-            image_b64 = await edit_image_with_openai(
-                image_bytes=self.reference_image_bytes,
-                image_mime=self.reference_image_mime,
-                image_filename="reference.png",
-                prompt=final_prompt, # Use the combined prompt
-                session_id=self.session_id
-            )
             if image_b64 is None: 
-                raise Exception("OpenAI image editing failed in service for generate_image.")
+                # All retries failed, use the last recorded exception
+                effective_exception = last_exception if last_exception else Exception("OpenAI image editing failed after all retries.")
+                raise effective_exception
 
-            # Store the first image for debug repeat
-            if self.first_image_b64 is None:
-                self.first_image_b64 = image_b64
-
-            # After successful generation of the *initial* edited image (e.g., Aurora based on default prompt),
-            # update self.reference_image_bytes with this new image so generate_scene can use it.
             new_image_bytes = base64.b64decode(image_b64)
-            # Further process it to ensure it's a valid PNG for the next edit round, if necessary,
-            # though edit_image_with_openai should return b64_json of a PNG.
-            # For simplicity, let's assume b64_json is a direct PNG bytes source after decode.
             self.reference_image_bytes = new_image_bytes 
-            # self.reference_image_mime typically remains "image/png"
-            print(f"[Session {self.session_id}] self.reference_image_bytes updated by generate_image output.")
 
             if websocket.client_state == WebSocketState.CONNECTED:
                 try: await websocket.send_text(json.dumps({"type": "image", "content": image_b64, "turn_id": turn_id}))
@@ -369,76 +367,85 @@ class RPGSession:
             else: print(f"[S {self.session_id}] WS no longer connected. Skipping send error for initial image for T{turn_id}.")
 
     async def generate_scene(self, prompt: str, turn_id: int, websocket: WebSocket):
-        try:
-            # Debug: Repeat the first image if flag is enabled by calling the getter
-            if get_debug_image_repeat_status() and self.first_image_b64 is not None:
-                print(f"[Session {self.session_id}] DEBUG_IMAGE_REPEAT via getter is ON. Reusing first image for turn {turn_id}.")
-                if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(json.dumps({"type": "image", "content": self.first_image_b64, "turn_id": turn_id}))
-                return
+        MAX_RETRIES = 2 # Total 3 attempts
+        image_b64 = None
+        last_exception = None
 
-            if not self.reference_image_bytes or not self.reference_image_mime:
-                error_msg = "Cannot generate scene: Previous image (self.reference_image_bytes) is not available."
+        try:
+            api_image_inputs = []
+            temp_filenames_for_logging = []
+            base_image_added_for_api = False # Tracks if any image suitable as a base has been added
+
+            if self.turn_number == 1:
+                print(f"[S {self.session_id}] Turn 1: Not using theme image as base. Will rely on character sprites (if any) and prompt.")
+                # For Turn 1, we intentionally do not add 'previous_scene_output.png' (the theme image).
+                # Character sprites added later will be the only image inputs.
+            elif self.turn_number > 1:
+                if self.reference_image_bytes and self.reference_image_mime:
+                    api_image_inputs.append(
+                        ("previous_scene_output.png", io.BytesIO(self.reference_image_bytes), self.reference_image_mime)
+                    )
+                    temp_filenames_for_logging.append("previous_scene_output.png")
+                    base_image_added_for_api = True
+                    print(f"[S {self.session_id}] Turn > 1: Using previous scene output as the base image for editing for Turn {self.turn_number}.")
+                else:
+                    # This is a critical error for turns > 1, as a base image is expected.
+                    error_msg = f"Cannot generate scene for Turn {self.turn_number}: Previous turn's image (self.reference_image_bytes) is not available."
+                    print(f"[Session {self.session_id}] {error_msg}")
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
+                    return # Stop if no base image for T > 1
+            
+            # Add original reference images for all characters currently in the scene.
+            # For Turn 1, these will be the *only* images if any characters are present.
+            # For Turn > 1, these supplement the previous scene's output.
+            characters_processed_for_sprites = set()
+            for char_name in self.current_characters_in_scene:
+                if char_name in characters_processed_for_sprites:
+                    continue
+
+                char_image_path = CHARACTER_IMAGE_PATHS.get(char_name)
+                if char_image_path:
+                    # Check if this character's sprite is already the base (e.g. if previous_scene_output was Aurora and char_name is Aurora)
+                    # This specific check might be complex and depends on how images are named/identified.
+                    # For simplicity, we add all distinct character sprites from current_characters_in_scene.
+                    # The API/prompt should handle an existing character in the base image being re-specified by a sprite.
+                    
+                    char_bytes, char_mime = load_image_from_path(char_image_path)
+                    if char_bytes and char_mime:
+                        sprite_filename = f"{char_name}_original_ref.png"
+                        # Avoid adding the exact same image data twice if, for example, Aurora is the base AND in current_characters_in_scene.
+                        # This check is a bit superficial as it only checks filename, not content.
+                        # However, openai_service.py passes a list, and the DALL-E API might handle redundancy.
+                        is_duplicate_of_base = False
+                        if self.turn_number > 1 and base_image_added_for_api and api_image_inputs[0][0] == "previous_scene_output.png":
+                            # A more robust check would involve comparing image hashes if this becomes an issue.
+                            # For now, assume adding specific character sprites is beneficial for prompting.
+                            pass # Allow adding, prompt will clarify
+
+                        if not is_duplicate_of_base: # Simplified: always add if char is in scene
+                            api_image_inputs.append((sprite_filename, io.BytesIO(char_bytes), char_mime))
+                            temp_filenames_for_logging.append(sprite_filename)
+                            characters_processed_for_sprites.add(char_name)
+                            if not base_image_added_for_api: # If this is the first image being added (e.g. Turn 1)
+                                base_image_added_for_api = True
+                            print(f"[S {self.session_id}] Added {sprite_filename} for image generation context.")
+                        else:
+                            print(f"[S {self.session_id}] Skipped adding {sprite_filename} as it might duplicate the base image logic.")
+                    else: 
+                        print(f"[S {self.session_id}] Original image for {char_name} not found/loaded at path: {char_image_path}.")
+                else: 
+                    print(f"[S {self.session_id}] No image path defined in CHARACTER_IMAGE_PATHS for char: {char_name}.")
+            
+            # If after all attempts, api_image_inputs is empty, we cannot proceed.
+            # This could happen on Turn 1 if no characters are in the scene.
+            if not api_image_inputs:
+                error_msg = "Cannot generate scene: No reference images (neither previous scene for T>1, nor character sprites for T1) are available."
                 print(f"[Session {self.session_id}] {error_msg}")
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.send_text(json.dumps({"type": "error", "content": error_msg, "turn_id": turn_id}))
                 return
 
-            # Start with the output of the previous turn as the base image to edit.
-            # The service function `edit_image_with_multiple_inputs_openai` expects a list of tuples:
-            # (filename, BytesIO_object, mime_type)
-            api_image_inputs = [
-                ("previous_scene_output.png", io.BytesIO(self.reference_image_bytes), self.reference_image_mime)
-            ]
-            print(f"[S {self.session_id}] Using previous scene output as the first image for editing.")
-
-            # Add original reference images for other characters in the scene for context.
-            # These are passed in the list, but the API will likely only use the first as the primary editable image.
-            # Their main influence will be through the detailed text prompt.
-            characters_to_add_references_for = [cn for cn in self.current_characters_in_scene]
-            # If Aurora is in current_characters_in_scene, her original reference could be added too,
-            # in addition to her being part of previous_scene_output.png.
-            # Or, we rely on previous_scene_output.png to carry her visual forward.
-            # Let's add original references for all characters listed, including Aurora if present.
-            # The service will decide if it sends one or many (currently configured to send many if >1).
-
-            temp_filenames_for_logging = ["previous_scene_output.png"] 
-
-            for char_name in characters_to_add_references_for: # Iterate through all chars in scene
-                # Skip adding previous_scene_output again if char_name is aurora and we consider previous_scene_output as her latest version.
-                # However, adding original references might help guide the prompt interpretation.
-                # For now, let's add original references for all specified characters if not already the base.
-                
-                is_base_image_aurora = (char_name == "aurora") # Assuming Aurora is inherently in reference_image_bytes
-                
-                # If we want to send original character files as additional context:
-                char_image_path = CHARACTER_IMAGE_PATHS.get(char_name)
-                if char_image_path:
-                    # Only add if not Aurora AND Aurora is the base (to avoid sending aurora.png if previous_scene is already her)
-                    # This logic gets complex. Simpler: always send previous scene + original refs of chars in scene.
-                    # The `edit_image_with_multiple_inputs_openai` handles the list.
-                    
-                    # Let's ensure we don't add the *exact same BytesIO object* if Aurora is the base
-                    # and also in current_characters_in_scene.
-                    # The primary image for editing is already api_image_inputs[0]
-                    # Add other character *original* reference images.
-                    if char_name == "aurora" and api_image_inputs[0][0] == "previous_scene_output.png":
-                        # We are already sending previous scene which contains Aurora.
-                        # Optionally, we could add the *original* images/aurora.png for strong reference.
-                        # For now, let's assume previous_scene_output carries Aurora forward from the edit.
-                        # If other characters are present, their original files are added.
-                        print(f"[S {self.session_id}] Aurora is part of the base image to be edited. Her original ref won't be added separately unless logic changes.")
-                    elif char_name != "aurora": # Add original reference for other characters
-                        char_bytes, char_mime = load_image_from_path(char_image_path)
-                        if char_bytes and char_mime:
-                            api_image_inputs.append((f"{char_name}_original_ref.png", io.BytesIO(char_bytes), char_mime))
-                            temp_filenames_for_logging.append(f"{char_name}_original_ref.png")
-                            print(f"[S {self.session_id}] Added {char_name}_original_ref.png for context.")
-                        else: 
-                            print(f"[S {self.session_id}] Original image for {char_name} not found/loaded.")
-                else: 
-                    print(f"[S {self.session_id}] No image path for char: {char_name}.")
-            
             # Construct the text prompt
             prompt_character_descriptions = []
             for char_name in self.current_characters_in_scene:
@@ -449,21 +456,36 @@ class RPGSession:
             characters_for_prompt_string = ". ".join(prompt_character_descriptions)
             
             final_scene_prompt_text = f"{IMAGE_STYLE_GUIDE}\n\nCharacters to include: {characters_for_prompt_string}.\nScene details based on story: {prompt}"
-                                   
-            # print(f"[Scene Prompt Used] {final_scene_prompt_text}")
+
+            print(f"[S {self.session_id}] Image prompt: {final_scene_prompt_text}")
             print(f"[S {self.session_id}] Images sent to service: {temp_filenames_for_logging}")
 
-            # Call the service function that can handle a list of images
-            image_b64 = await edit_image_with_multiple_inputs_openai(
-                image_files_for_api=api_image_inputs, 
-                prompt=final_scene_prompt_text,
-                session_id=self.session_id
-            )
+            for attempt in range(MAX_RETRIES + 1):
+                print(f"[S {self.session_id}][GenerateScene] Attempt {attempt + 1}/{MAX_RETRIES + 1} for turn {turn_id}")
+                try:
+                    image_b64 = await edit_image_with_multiple_inputs_openai(
+                        image_files_for_api=api_image_inputs, 
+                        prompt=final_scene_prompt_text,
+                        session_id=self.session_id
+                    )
+                    if image_b64:
+                        print(f"[S {self.session_id}][GenerateScene] Attempt {attempt + 1} successful for turn {turn_id}.")
+                        break # Success
+                    else:
+                        print(f"[S {self.session_id}][GenerateScene] Attempt {attempt + 1} for turn {turn_id} returned None, will retry if attempts remain.")
+                        last_exception = Exception("OpenAI multi-image editing returned None without explicit exception.")
+
+                except Exception as e:
+                    last_exception = e
+                    print(f"[S {self.session_id}][GenerateScene] Attempt {attempt + 1} for turn {turn_id} failed: {e}")
+                
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(1) # Wait 1 second before retrying
 
             if image_b64 is None: 
-                raise Exception("OpenAI multi-image editing failed in service for generate_scene.")
+                effective_exception = last_exception if last_exception else Exception("OpenAI multi-image editing failed after all retries for generate_scene.")
+                raise effective_exception
 
-            # CRUCIAL: Update self.reference_image_bytes with the NEWLY generated scene for the NEXT turn.
             self.reference_image_bytes = base64.b64decode(image_b64)
             self.reference_image_mime = "image/png" # Assuming service returns PNG
             print(f"[Session {self.session_id}] self.reference_image_bytes updated by generate_scene output for turn {turn_id}.")

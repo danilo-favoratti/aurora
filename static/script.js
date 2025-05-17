@@ -2,10 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // DOM elements
     const historyLog = document.getElementById('history-log');
     const connectionStatus = document.getElementById('connection-status');
-    const debugMenu = document.getElementById('debug-menu');
     const objectivesList = document.getElementById('objectives-list');
-    const debugImageRepeatToggle = document.getElementById('debug-image-repeat-toggle');
-    const debugImageRepeatStatus = document.getElementById('debug-image-repeat-status');
     const savePdfButton = document.getElementById('save-pdf-button');
 
     // New Top Menu elements
@@ -35,23 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let turnNarrationStatus = {}; // E.g., { 0: "typing" | "complete" }
     let pendingChoices = {};    // E.g., { 0: [...] }
 
-    // Debug menu state
-    let isDebugMenuVisible = false;
-
     // Check initial screen width to set menu state - REMOVED as menu now starts closed by default
     /*
     if (topMenuContainer && window.innerWidth < 768) {
         topMenuContainer.classList.remove('open');
     }
     */
-
-    // Toggle debug menu with F8
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'F8') {
-            isDebugMenuVisible = !isDebugMenuVisible;
-            debugMenu.style.display = isDebugMenuVisible ? 'block' : 'none';
-        }
-    });
 
     // Toggle new top menu
     if (topMenuToggleButton && topMenuContainer) {
@@ -83,22 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 let mainObjectiveText = obj.objective;
                 textContainer.appendChild(document.createTextNode(mainObjectiveText));
-
-                if (obj.target_count && obj.target_count > 0 && !obj.partially_complete) {
-                    const current = obj.current_count || 0;
-                    const countSpan = document.createElement('span');
-                    countSpan.className = 'objective-count';
-                    countSpan.textContent = ` (${current}/${obj.target_count})`;
-                    textContainer.appendChild(countSpan);
-                }
-
-                if (obj.partially_complete && !obj.finished) {
-                    const partialSpan = document.createElement('span');
-                    partialSpan.className = 'partial-progress';
-                    let separator = textContainer.childNodes.length > 1 ? " " : "";
-                    partialSpan.textContent = `${separator}- ${obj.partially_complete}`;
-                    textContainer.appendChild(partialSpan);
-                }
                 
                 li.appendChild(textContainer);
                 objectivesList.appendChild(li);
@@ -164,7 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (objectivesList) objectivesList.innerHTML = '';
             turnNarrationStatus = {}; // Reset on new connection
             pendingChoices = {};    // Reset on new connection
-            fetchDebugImageRepeat(); // Fetch and set debug status on connect/reconnect
             createNewTurnElement(turnIdCounter);
         };
         socket.onclose = () => {
@@ -559,44 +528,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Scroll horizontally to the end to show the latest turn
         historyLog.scrollLeft = historyLog.scrollWidth;
     }
-
-    // Fetch current debug image repeat status
-    async function fetchDebugImageRepeat() {
-        try {
-            const res = await fetch('/debug/image-generation');
-            const data = await res.json();
-            debugImageRepeatToggle.checked = !!data.debug_image_repeat;
-            debugImageRepeatStatus.textContent = data.debug_image_repeat ? 'ON' : 'OFF';
-        } catch (e) {
-            debugImageRepeatStatus.textContent = 'Error';
-        }
-    }
-
-    // Set debug image repeat status
-    async function setDebugImageRepeat(value) {
-        try {
-            const res = await fetch('/debug/image-generation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ debug_image_repeat: value })
-            });
-            const data = await res.json();
-            debugImageRepeatStatus.textContent = data.debug_image_repeat ? 'ON' : 'OFF';
-        } catch (e) {
-            debugImageRepeatStatus.textContent = 'Error';
-        }
-    }
-
-    // Listen for toggle changes
-    if (debugImageRepeatToggle) {
-        debugImageRepeatToggle.addEventListener('change', (e) => {
-            setDebugImageRepeat(debugImageRepeatToggle.checked);
-        });
-    }
-
-    // Show debug menu if F8 is pressed (already handled above)
-    // Fetch debug status on load
-    fetchDebugImageRepeat();
 
     // PDF Generation Function
     async function generatePdf() {

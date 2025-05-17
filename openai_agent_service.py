@@ -16,9 +16,6 @@ class Objective(BaseModel):
     id: int = Field(description="Unique sequential identifier for this objective, assigned by the system.")
     objective: str = Field(description="Description of the objective to be completed.")
     finished: bool = Field(description="Whether this objective has been completed or not.")
-    partially_complete: Optional[str] = Field(default=None, description="If partially complete, a string explaining what's done and what's missing.")
-    target_count: Optional[int] = Field(default=None, description="If this objective requires multiple steps/items, this is the total number required for completion. None if not applicable.")
-    current_count: int = Field(default=0, description="For objectives with a target_count, this tracks how many steps/items have been completed so far. Defaults to 0.")
 
 class Character(BaseModel):
     name: str = Field(description="Character name (lowercase).")
@@ -83,8 +80,6 @@ class StoryResponse(BaseModel):
 class ObjectiveInputForCreation(BaseModel):
     objective: str = Field(description="Description of the objective to be completed.")
     finished: bool = Field(description="Whether this objective has been completed or not. Should typically be False for new objectives.")
-    partially_complete: Optional[str] = Field(default=None, description="If partially complete, a string explaining what's done and what's missing.")
-    target_count: Optional[int] = Field(default=None, description="If this objective requires finding/doing multiple things (e.g. 'Find 3 items'), specify the total number here. Leave as None for simple true/false objectives.")
 
 @function_tool
 async def update_game_objectives_tool(
@@ -93,9 +88,8 @@ async def update_game_objectives_tool(
 ) -> str:
     """
     Call this tool to set or update the player's game objectives.
-    Provide a list of all current objectives, including their 'objective' description string,
-    'finished' status (boolean), and optionally a 'partially_complete' string
-    if an objective is in progress but not fully completed.
+    Provide a list of all current objectives, including their 'objective' description string and
+    'finished' status (boolean).
     """
     log_prefix = "[Agent Tool: update_game_objectives_tool]"
     game_context = ctx.context # Access GameContext via RunContextWrapper
@@ -130,7 +124,7 @@ async def create_game_objectives_tool(
 ) -> str:
     """
     Call this tool ONLY ONCE at the beginning of the game to define the initial set of objectives.
-    Provide a list of objectives, each with an 'objective' description string, and optionally 'finished' status and 'partially_complete' details.
+    Provide a list of objectives, each with an 'objective' description string, and optionally 'finished' status.
     The system will automatically assign unique IDs to these objectives. You do not need to provide IDs.
     If objectives have already been initialized for this game, this tool will do nothing.
     """
@@ -155,14 +149,11 @@ async def create_game_objectives_tool(
         created_obj = Objective(
             id=new_id,
             objective=obj_input.objective,
-            finished=obj_input.finished,
-            partially_complete=obj_input.partially_complete,
-            target_count=obj_input.target_count,
-            current_count=0
+            finished=obj_input.finished
         )
         created_objectives.append(created_obj)
         game_context.next_objective_id += 1
-        print(f"{log_prefix} Assigned ID {new_id} to objective: '{obj_input.objective}' (Target: {obj_input.target_count})")
+        print(f"{log_prefix} Assigned ID {new_id} to objective: '{obj_input.objective}'")
 
     game_context.objectives = created_objectives
     game_context.objectives_initialized = True
@@ -176,10 +167,7 @@ async def create_game_objectives_tool(
     
     objectives_summary_parts = []
     for obj in created_objectives:
-        summary = f"(ID: {obj.id}, Desc: '{obj.objective}'"
-        if obj.target_count is not None:
-            summary += f", Target: {obj.target_count}, Current: {obj.current_count}"
-        summary += f", Finished: {obj.finished})"
+        summary = f"(ID: {obj.id}, Desc: '{obj.objective}', Finished: {obj.finished})"
         objectives_summary_parts.append(summary)
     objectives_summary_str = "; ".join(objectives_summary_parts)
     
@@ -191,10 +179,8 @@ async def update_objective_status_tool(
     finished_objective_ids: List[int]
 ) -> str:
     """
-    Call this tool to mark one or more existing simple true/false objectives as 'finished' using their unique system-assigned ID.
-    This tool is for objectives that DO NOT have a 'target_count' (i.e., they are completed in a single step).
-    Provide a list of integers, where each integer is the ID of such an objective that has now been completed.
-    For objectives that require multiple steps (have a 'target_count'), use 'increment_objective_progress_tool' instead.
+    Call this tool to mark one or more existing objectives as 'finished' using their unique system-assigned ID.
+    Provide a list of integers, where each integer is the ID of an objective that has now been completed.
     """
     log_prefix = "[Agent Tool: update_objective_status_tool]"
     game_context = ctx.context
@@ -213,19 +199,12 @@ async def update_objective_status_tool(
 
     updated_count = 0
     not_found_ids = []
-    improperly_used_ids = []
 
     print(f"{log_prefix} Attempting to mark objectives as finished by ID: {finished_objective_ids}")
     for objective_id_to_finish in finished_objective_ids:
         found_objective = False
         for objective in game_context.objectives:
             if objective.id == objective_id_to_finish:
-                if objective.target_count is not None:
-                    improperly_used_ids.append(objective_id_to_finish)
-                    print(f"{log_prefix} Objective ID {objective_id_to_finish} ('{objective.objective}') is a countable objective. Use increment_objective_progress_tool instead.")
-                    found_objective = True # Found, but wrong tool
-                    break
-                
                 if not objective.finished:
                     objective.finished = True
                     updated_count += 1
@@ -250,8 +229,6 @@ async def update_objective_status_tool(
         print(f"{log_prefix} Quest was COMPLETED, but not all objectives are. Reset to IN_PROGRESS (unexpected)." )
 
     response_message = f"Updated {updated_count} simple objective(s) to finished."
-    if improperly_used_ids:
-        response_message += f" The following objective IDs are countable and should be updated with 'increment_objective_progress_tool': {', '.join(map(str, improperly_used_ids))}."
     if not_found_ids:
         response_message += f" Could not find objectives with the following IDs: {', '.join(map(str, not_found_ids))}."
     print(f"{log_prefix} {response_message} Current quest state: {game_context.quest_state}")
@@ -264,8 +241,7 @@ async def get_objectives_tool(
     """
     Call this tool to retrieve the current list of all game objectives.
     This tool takes no arguments.
-    It returns a list of all objectives, including their 'id', 'objective' description, 'finished' status,
-    'partially_complete' details, and for countable objectives: 'target_count' and 'current_count'.
+    It returns a list of all objectives, including their 'id', 'objective' description, and 'finished' status.
     """
     log_prefix = "[Agent Tool: get_objectives_tool]"
     game_context = ctx.context
@@ -291,74 +267,6 @@ async def get_objectives_tool(
     # The agent SDK will handle serializing this List[Objective] for the LLM.
     return game_context.objectives
 
-@function_tool
-async def increment_objective_progress_tool(
-    ctx: RunContextWrapper[GameContext],
-    objective_id: int,
-    increment_by: int
-) -> str:
-    """
-    Call this tool to report progress on a countable objective (one that has a 'target_count').
-    Provide the 'objective_id' of the objective and 'increment_by' (e.g., 1) for how much progress was made.
-    This tool will update the objective's 'current_count' and 'partially_complete' status.
-    If current_count reaches target_count, the objective will automatically be marked as 'finished'.
-    Use this INSTEAD of update_objective_status_tool for objectives that require multiple steps.
-    """
-    log_prefix = "[Agent Tool: increment_objective_progress_tool]"
-    game_context = ctx.context
-
-    if game_context is None:
-        print(f"{log_prefix} Error: Game context not available.")
-        return "Error: Game context not available."
-
-    if not game_context.objectives_initialized:
-        print(f"{log_prefix} Objectives have not been initialized yet.")
-        return "Error: Objectives must be created before progress can be reported."
-
-    target_objective: Optional[Objective] = None
-    for obj in game_context.objectives:
-        if obj.id == objective_id:
-            target_objective = obj
-            break
-
-    if target_objective is None:
-        print(f"{log_prefix} Objective ID {objective_id} not found.")
-        return f"Error: Objective ID {objective_id} not found."
-
-    if target_objective.finished:
-        msg = f"Objective ID {objective_id} ('{target_objective.objective}') is already finished. No further progress can be reported."
-        print(f"{log_prefix} {msg}")
-        return msg
-        
-    if target_objective.target_count is None:
-        msg = f"Objective ID {objective_id} ('{target_objective.objective}') is not a countable objective. Use update_objective_status_tool for simple true/false objectives."
-        print(f"{log_prefix} {msg}")
-        return msg
-
-    target_objective.current_count += increment_by
-    target_objective.current_count = min(target_objective.current_count, target_objective.target_count) # Cap at target_count
-
-    progress_msg = f"({target_objective.current_count}\\{target_objective.target_count})."
-    target_objective.partially_complete = progress_msg
-    print(f"{log_prefix} {progress_msg}")
-
-    if target_objective.current_count >= target_objective.target_count:
-        target_objective.finished = True
-        target_objective.partially_complete = f"Completed: {target_objective.target_count} of {target_objective.target_count}."
-        finish_msg = f"Objective ID {objective_id} ('{target_objective.objective}') is now marked as finished."
-        print(f"{log_prefix} {finish_msg}")
-        progress_msg += f" {finish_msg}"
-    
-    # Check if all objectives in the game are now complete
-    if game_context.check_all_objectives_completed():
-        game_context.quest_state = QuestState.COMPLETED
-        all_done_msg = "All game objectives are now completed! Quest state updated to COMPLETED."
-        print(f"{log_prefix} {all_done_msg}")
-        progress_msg += f" {all_done_msg}"
-    elif game_context.quest_state == QuestState.NOT_STARTED: # Should not happen if objectives exist
-        game_context.quest_state = QuestState.IN_PROGRESS
-        print(f"{log_prefix} Quest state set to IN_PROGRESS.")
-
 def initialize_storyteller_agent() -> Agent:
     """Initializes and returns the storyteller agent with structured output."""
     storyteller_agent = Agent(
@@ -366,9 +274,9 @@ def initialize_storyteller_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         model="gpt-4.1",
         output_type=StoryResponse,
-        tools=[create_game_objectives_tool, update_objective_status_tool, get_objectives_tool, increment_objective_progress_tool] # Added new tool
+        tools=[create_game_objectives_tool, update_objective_status_tool, get_objectives_tool] # Removed increment_objective_progress_tool
     )
-    print("[Agent Service] Storyteller Agent initialized with new objective tools including increment_objective_progress_tool.")
+    print("[Agent Service] Storyteller Agent initialized with simplified objective tools.")
     return storyteller_agent
 
 async def get_agent_story_response(runner: Runner, game_context: GameContext, current_turn_user_input: str, conversation_history: List[Dict[str, str]], session_id: str) -> Optional[StoryResponse]:

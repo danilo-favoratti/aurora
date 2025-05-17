@@ -37,10 +37,10 @@ CHARACTER_IMAGE_PATHS = {
 # Detailed Character Descriptions for Image Generation Prompts
 DETAILED_CHARACTER_DESCRIPTIONS = {
     "aurora": "Aurora, a one-year-old girl with bright blonde hair in a blue top-knot chuquinha, clear blue eyes, and a consistently cheerful expression, wearing her usual blue dress",
-    "davi": "Davi, a tall man with a slightly cynical but loving smile, dark short-cropped hair, black glasses,often seen wearing a simple dark t-shirt and jeans",
-    "barbara": "Barbara, a woman with brown eyes, brown glasses, wise and loving eyes, wearing red t-shirt and blue jeans",
-    "lari": "Lari, blonde short hair, blue eyes, blue glasses,wearing a red jacket and dark blue jeans and brown boots",
-    "danilo": "Danilo, black hair, brown eyes. wearing a green Mars t-shirt, blue jeans and brown boots"
+    "davi": "Davi, a tall 6.7 feet man with a slightly cynical but loving smile, Fitted black crew-neck tee, straight-leg mid-wash jeans cuffed at the ankle, and dark-brown leather lace-up boots with a low heel.",
+    "barbara": "Barbara, an approachable 5.9 feet woman, brown-eyed woman with a warm smile, hair in a loose bun, wearing pointed-top round glasses, a stud-patched wine-red leather jacket over a white tee, slim black jeans, and knee-high boots, standing tall.",
+    "lari": "Lari, a cheerful blonde-tousled 5.6 feet woman woman of about thirty-five beams through turquoise round glasses, her bright blue eyes and wide, toothy smile, wearing a cuffed denim jacket and jeans, a patterned blue scarf, navy sneakers, and a moss-green crossbody pouch.",
+    "danilo": "Dandan, a 6.2 feet tall man, dark hair tied in a top-knot, neatly squared jaw softened by a full chin-covering beard with no skin showing, warm complexion, flat-top round-bottom brown sunglasses, earthy-green “MARS” tee, cuffed indigo jeans and rugged olive combat boots."
 }
 
 # Game Settings
